@@ -1,0 +1,194 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base ──────────────────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ── Design tokens (CSS custom properties) ─────────────────────────────────── */
+
+:root {
+  --forge-bg:          #0f1117;
+  --forge-surface:     #1a1d27;
+  --forge-border:      #2a2d3a;
+  --forge-border-mid:  #3a3d4a;
+  --forge-accent:      #6366f1;
+  --forge-accent-lite: #818cf8;
+  --forge-text:        #e2e8f0;
+  --forge-muted:       #64748b;
+
+  /* Easing curves — natural, refined motion */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo:  cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--forge-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--forge-border-mid);
+}
+
+/* ── React Flow overrides ──────────────────────────────────────────────────── */
+
+.react-flow__controls {
+  bottom: 1rem !important;
+  left: 1rem !important;
+}
+
+.react-flow__controls-button {
+  background: var(--forge-surface) !important;
+  border-color: var(--forge-border) !important;
+  fill: var(--forge-muted) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--forge-border) !important;
+  fill: var(--forge-text) !important;
+}
+
+.react-flow__minimap {
+  bottom: 1rem !important;
+  right: 1rem !important;
+}
+
+.react-flow__edge-path {
+  stroke: var(--forge-accent);
+  stroke-width: 2;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--forge-accent-lite);
+}
+
+.react-flow__connection-path {
+  stroke: var(--forge-accent);
+  stroke-width: 2;
+}
+
+/* ── Utility classes ───────────────────────────────────────────────────────── */
+
+@layer components {
+  .btn-ghost {
+    @apply px-3 py-1.5 rounded text-sm text-forge-muted hover:text-forge-text
+           hover:bg-forge-border/40
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forge-accent focus-visible:ring-offset-1 focus-visible:ring-offset-forge-surface;
+    transition: color 150ms, background-color 150ms, transform 100ms;
+  }
+  .btn-ghost:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+}
+
+/* ── Keyframes ─────────────────────────────────────────────────────────────── */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-scale {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-expand-down {
+  from { opacity: 0; max-height: 0; }
+  to   { opacity: 1; max-height: 600px; }
+}
+
+@keyframes gentle-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes check-draw {
+  from { stroke-dashoffset: 20; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* ── Animation utilities ──────────────────────────────────────────────────── */
+
+.animate-fade-in {
+  animation: fade-in 300ms var(--ease-out-quart) both;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 400ms var(--ease-out-quart) both;
+}
+
+.animate-fade-in-scale {
+  animation: fade-in-scale 250ms var(--ease-out-quart) both;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 300ms var(--ease-out-quart) both;
+}
+
+.animate-gentle-float {
+  animation: gentle-float 4s ease-in-out infinite;
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Edge hover glow ──────────────────────────────────────────────────────── */
+
+.react-flow__edge-path {
+  transition: stroke 150ms, filter 150ms;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: var(--forge-accent-lite);
+  filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.4));
+}
+
+/* ── React Flow controls transition ───────────────────────────────────────── */
+
+.react-flow__controls-button {
+  transition: background-color 150ms, fill 150ms !important;
+}

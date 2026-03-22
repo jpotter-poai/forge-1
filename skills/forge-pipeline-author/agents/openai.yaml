@@ -1,0 +1,4 @@
+interface:
+  display_name: "Forge Pipeline Author"
+  short_description: "Author Forge DAGs cleanly"
+  default_prompt: "Use $forge-pipeline-author to create or refine a Forge pipeline with strong grouping, validation, and result inspection."
