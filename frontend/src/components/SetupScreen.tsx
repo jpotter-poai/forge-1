@@ -3,6 +3,7 @@
  * Displays progress as the backend is being set up.
  */
 
+import { useEffect, useState } from "react";
 import type { SetupStage } from "@/hooks/useTauri";
 
 interface SetupScreenProps {
@@ -66,6 +67,18 @@ function isFileLockError(error: string | null): boolean {
 }
 
 export function SetupScreen({ stage, error, onRetry }: SetupScreenProps) {
+  const [logPath, setLogPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const path = await invoke<string>("get_log_path");
+        setLogPath(path);
+      } catch { /* not in Tauri or command not available */ }
+    })();
+  }, []);
+
   if (stage === "ready") return null;
 
   // Override stage to file-locked if we detect that specific error
@@ -172,6 +185,11 @@ export function SetupScreen({ stage, error, onRetry }: SetupScreenProps) {
             {error && (
               <p className="text-xs text-red-400 font-mono bg-red-950/30 rounded px-3 py-2 max-w-full overflow-x-auto max-h-32 overflow-y-auto">
                 {error}
+              </p>
+            )}
+            {logPath && (
+              <p className="text-xs text-gray-500">
+                Full log: <span className="text-gray-400 font-mono select-all">{logPath}</span>
               </p>
             )}
             <button

@@ -11,5 +11,3 @@ anyio>=4.4
 mcp>=1.8
 uvicorn[standard]>=0.30
 umap-learn>=0.5
-httpx>=0.27
-pytest>=8.0

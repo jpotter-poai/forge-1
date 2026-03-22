@@ -12,7 +12,15 @@ def _strip_optional_quotes(value: str) -> str:
 
 
 def _load_dotenv_values() -> dict[str, str]:
-    for directory in (Path.cwd().resolve(), *Path.cwd().resolve().parents):
+    # Search for .env in cwd, its parents, and the Forge data directory
+    search_dirs = [Path.cwd().resolve(), *Path.cwd().resolve().parents]
+
+    # Also check the platform-specific Forge data directory
+    forge_data = _forge_data_dir()
+    if forge_data and forge_data not in search_dirs:
+        search_dirs.append(forge_data)
+
+    for directory in search_dirs:
         env_path = directory / ".env"
         if not env_path.exists():
             continue
@@ -31,6 +39,18 @@ def _load_dotenv_values() -> dict[str, str]:
     return {}
 
 
+def _forge_data_dir() -> Path | None:
+    """Return the platform-specific Forge data directory."""
+    import sys
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            return Path(local) / "Forge"
+    elif sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Forge"
+    return None
+
+
 def env_or_default(key: str, default: str) -> str:
     dotenv_values = _load_dotenv_values()
     if key in os.environ:
@@ -46,14 +66,14 @@ class Settings:
     default_file_path: str = ""
     log_level: str = "INFO"
     cors_origins: list[str] = field(default_factory=lambda: [
-        "http://localhost:40963",
+        "http://tauri.localhost",
         "https://tauri.localhost",
-        "tauri://localhost",
+        "http://localhost:1420",
     ])
 
     @classmethod
     def from_env(cls) -> "Settings":
-        default_cors = "http://localhost:40963,https://tauri.localhost,tauri://localhost"
+        default_cors = "http://tauri.localhost,https://tauri.localhost,http://localhost:1420"
         cors_raw = env_or_default("CORS_ORIGINS", default_cors)
         cors = [item.strip() for item in cors_raw.split(",") if item.strip()]
         return cls(

@@ -20,6 +20,7 @@ export function ForgeShell({ children }: Props) {
     boolean | null
   >(null);
   const [appReady, setAppReady] = useState(false);
+  const [appKey, setAppKey] = useState(0);
 
   // When the backend is ready in Tauri mode, update the API client
   // and check if workspace setup is needed
@@ -34,12 +35,12 @@ export function ForgeShell({ children }: Props) {
         const complete = await invoke<boolean>("check_workspace_setup");
         if (complete) {
           setNeedsWorkspaceSetup(false);
+          setAppKey((k) => k + 1);
           setAppReady(true);
         } else {
           setNeedsWorkspaceSetup(true);
         }
       } catch {
-        // If check fails, skip workspace setup
         setNeedsWorkspaceSetup(false);
         setAppReady(true);
       }
@@ -49,6 +50,7 @@ export function ForgeShell({ children }: Props) {
   // After workspace setup, restart backend so it picks up new .env paths
   const handleWorkspaceComplete = useCallback(async () => {
     setNeedsWorkspaceSetup(false);
+    setAppReady(false);
 
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -61,24 +63,13 @@ export function ForgeShell({ children }: Props) {
     }
   }, [retry]);
 
-  // When backend comes back after restart, mark app as ready
-  useEffect(() => {
-    if (
-      stage === "ready" &&
-      needsWorkspaceSetup === false &&
-      !appReady
-    ) {
-      setAppReady(true);
-    }
-  }, [stage, needsWorkspaceSetup, appReady]);
-
   // In browser dev mode, skip everything
   if (!isTauri) {
     return <>{children}</>;
   }
 
-  // Show setup screen until backend is ready (first time or restart)
-  if (stage !== "ready" && !needsWorkspaceSetup) {
+  // Show setup screen while backend is starting
+  if (stage !== "ready") {
     return <SetupScreen stage={stage} error={error} onRetry={retry} />;
   }
 
@@ -92,5 +83,5 @@ export function ForgeShell({ children }: Props) {
     return <SetupScreen stage={stage} error={error} onRetry={retry} />;
   }
 
-  return <>{children}</>;
+  return <div key={appKey}>{children}</div>;
 }

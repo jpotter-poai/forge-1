@@ -5,6 +5,21 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 
+/// Create a Command that won't spawn a visible console window on Windows.
+#[cfg(target_os = "windows")]
+fn silent_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let mut cmd = Command::new(program);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+#[cfg(not(target_os = "windows"))]
+fn silent_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    Command::new(program)
+}
+
 /// Represents the state of the Python backend lifecycle.
 #[derive(Debug, Clone, Serialize)]
 #[allow(dead_code)]
@@ -110,7 +125,7 @@ pub fn find_system_python() -> Option<String> {
 /// Query the `py` launcher for installed Python versions.
 fn get_py_launcher_versions() -> Vec<String> {
     info!("[py_versions] Running py --list...");
-    let output = Command::new("py").args(["--list"]).output();
+    let output = silent_command("py").args(["--list"]).output();
 
     match output {
         Ok(o) if o.status.success() => {
@@ -170,7 +185,7 @@ fn check_python_suitability(cmd: &str, flag_args: &[&str]) -> bool {
 
     info!("[check_python] Running: {cmd} {}", args.join(" ").chars().take(60).collect::<String>());
 
-    match Command::new(cmd).args(&args).spawn() {
+    match silent_command(cmd).args(&args).spawn() {
         Ok(mut child) => {
             match child.wait_timeout(Duration::from_secs(10)) {
                 Ok(Some(status)) => {
@@ -241,7 +256,7 @@ pub fn create_venv(system_python: &str) -> Result<(), String> {
 
     info!("[create_venv] Running: {cmd} {}", args.join(" "));
 
-    let output = Command::new(cmd)
+    let output = silent_command(cmd)
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to run {} -m venv: {e}", system_python))?;
@@ -282,7 +297,7 @@ fn run_pip(python: &PathBuf, cwd: &PathBuf, args: &[&str]) -> Result<(), String>
 
     info!("[pip] Running: {} {}", python.display(), full_args.join(" "));
 
-    let output = Command::new(python)
+    let output = silent_command(python)
         .current_dir(cwd)
         .args(&full_args)
         .output()
@@ -302,6 +317,8 @@ fn run_pip(python: &PathBuf, cwd: &PathBuf, args: &[&str]) -> Result<(), String>
 }
 
 /// Install the Forge backend into the managed venv.
+/// Copies source to a temp directory first because the bundled location
+/// (e.g. C:\Program Files\Forge) is read-only and pip needs to write build artifacts.
 pub fn install_forge(forge_root: &PathBuf) -> Result<(), String> {
     let python = venv_python().ok_or("Managed venv python not found")?;
     info!("[install_forge] Using python: {}", python.display());
@@ -314,42 +331,95 @@ pub fn install_forge(forge_root: &PathBuf) -> Result<(), String> {
         ));
     }
 
+    // Copy source to a writable temp directory for pip install.
+    // Program Files is read-only, and pip needs to create egg-info/build artifacts.
+    let temp_dir = std::env::temp_dir().join("forge-install-src");
+    if temp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    info!("[install_forge] Copying source to temp dir: {}", temp_dir.display());
+    copy_dir_recursive(forge_root, &temp_dir)
+        .map_err(|e| format!("Failed to copy source to temp dir: {e}"))?;
+
+    let install_dir = temp_dir.clone();
+
     // Upgrade pip first
     info!("[install_forge] Upgrading pip...");
-    let _ = run_pip(&python, forge_root, &["install", "--upgrade", "pip", "--quiet"]);
+    let _ = run_pip(&python, &install_dir, &["install", "--upgrade", "pip", "--quiet"]);
 
-    // Install forge in editable mode
-    info!("[install_forge] Installing forge (editable)...");
-    run_pip(&python, forge_root, &["install", "-e", ".", "--quiet"])?;
+    // Install forge package
+    info!("[install_forge] Installing forge...");
+    run_pip(&python, &install_dir, &["install", ".", "--quiet"])?;
 
     // Also install requirements.txt for pinned versions
-    let requirements = forge_root.join("requirements.txt");
+    let requirements = install_dir.join("requirements.txt");
     if requirements.exists() {
         info!("[install_forge] Installing requirements.txt...");
-        run_pip(&python, forge_root, &["install", "-r", "requirements.txt", "--quiet"])?;
+        run_pip(&python, &install_dir, &["install", "-r", "requirements.txt", "--quiet"])?;
     }
+
+    // Clean up temp dir
+    let _ = std::fs::remove_dir_all(&temp_dir);
 
     info!("[install_forge] All dependencies installed");
     Ok(())
 }
 
+/// Recursively copy a directory and all its contents.
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dest_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest_path)?;
+        } else {
+            std::fs::copy(entry.path(), &dest_path)?;
+        }
+    }
+    Ok(())
+}
+
 /// Start the FastAPI backend server.
-pub fn start_backend(forge_root: &PathBuf, port: u16) -> Result<std::process::Child, String> {
+pub fn start_backend(_forge_root: &PathBuf, port: u16) -> Result<std::process::Child, String> {
     let python = venv_python().ok_or("Managed venv python not found")?;
     info!("[start_backend] Spawning uvicorn on port {port} with python: {}", python.display());
 
-    let child = Command::new(&python)
-        .current_dir(forge_root)
+    // Use the Forge data dir as the working directory (writable), not Program Files.
+    // The backend package is already installed in the venv, so cwd doesn't matter for imports.
+    let work_dir = forge_data_dir().unwrap_or_else(|| std::env::temp_dir());
+    info!("[start_backend] Working directory: {}", work_dir.display());
+
+    // Pipe stderr so we can log backend errors
+    let mut child = silent_command(&python)
+        .current_dir(&work_dir)
         .args([
             "-m", "uvicorn",
             "backend.main:app",
             "--host", "127.0.0.1",
             "--port", &port.to_string(),
         ])
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to start backend: {e}"))?;
 
     info!("[start_backend] Spawned with PID: {}", child.id());
+
+    // Spawn a thread to read stderr and log it
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            let reader = std::io::BufReader::new(stderr);
+            for line in reader.lines() {
+                match line {
+                    Ok(l) => info!("[backend-stderr] {}", l),
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     Ok(child)
 }
 

@@ -10,23 +10,39 @@ import type {
   StalenessResponse,
 } from "@/types/pipeline";
 
-/** Detect if running inside Tauri desktop shell */
-const IS_TAURI =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
 /**
- * In Tauri mode, the backend runs on 127.0.0.1:40964 and we need absolute URLs.
+ * In Tauri mode, the backend runs on 127.0.0.1 and we need absolute URLs.
  * In browser dev mode, Vite proxies /api to the backend.
+ *
+ * Note: we lazily detect Tauri because __TAURI_INTERNALS__ may not be
+ * available when this module is first evaluated.
  */
 let _baseURL = "/api";
 
+const http = axios.create({ baseURL: _baseURL });
+
 export function setApiBaseUrl(port: number) {
-  _baseURL = `http://127.0.0.1:${port}/api`;
+  _baseURL = `http://localhost:${port}/api`;
   http.defaults.baseURL = _baseURL;
 }
 
-const http = axios.create({
-  baseURL: IS_TAURI ? "http://127.0.0.1:40964/api" : "/api",
+/** Ensure we're pointing at the right backend. Call before first API use in Tauri. */
+function ensureTauriBaseUrl() {
+  if (
+    _baseURL === "/api" &&
+    typeof window !== "undefined" &&
+    "__TAURI_INTERNALS__" in window
+  ) {
+    setApiBaseUrl(40964);
+  }
+}
+
+// Intercept every request to ensure the base URL is correct
+http.interceptors.request.use((config) => {
+  ensureTauriBaseUrl();
+  // Update baseURL in case it was just set
+  config.baseURL = http.defaults.baseURL;
+  return config;
 });
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -167,8 +183,8 @@ export function checkpointImageUrl(
   checkpointId: string,
   filename: string,
 ): string {
-  if (IS_TAURI) {
-    return `http://127.0.0.1:${_baseURL.match(/:(\d+)/)?.[1] ?? "40964"}/api/checkpoints/${checkpointId}/images/${filename}`;
+  if (_baseURL.startsWith("http")) {
+    return `${_baseURL}/checkpoints/${checkpointId}/images/${filename}`;
   }
   return `/api/checkpoints/${checkpointId}/images/${filename}`;
 }
@@ -200,9 +216,9 @@ export async function browseFiles(
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 
 export function openExecutionSocket(pipelineId: string): WebSocket {
-  if (IS_TAURI) {
+  if (_baseURL.startsWith("http")) {
     const port = _baseURL.match(/:(\d+)/)?.[1] ?? "40964";
-    return new WebSocket(`ws://127.0.0.1:${port}/api/ws/execute/${pipelineId}`);
+    return new WebSocket(`ws://localhost:${port}/api/ws/execute/${pipelineId}`);
   }
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   const host = window.location.host;

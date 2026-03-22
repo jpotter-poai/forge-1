@@ -114,6 +114,13 @@ pub async fn setup_and_start(
     .await
     .map_err(|e| format!("Task failed: {e}"))??;
 
+    // Ensure .env exists in the data dir (for production backend cwd)
+    if let Some(config) = workspace::load_config() {
+        if let Err(e) = workspace::write_env_file(&forge_root, &config.workspace_dir) {
+            log::warn!("[setup] Failed to write .env: {e}");
+        }
+    }
+
     // Step 4: Start the backend
     {
         let mut status = state.status.lock().unwrap();
@@ -163,13 +170,19 @@ fn resolve_forge_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         }
     }
 
-    // Fallback: try the resource directory
+    // Fallback: try the resource directory (production build)
     let resource_dir = app.path()
         .resource_dir()
         .map_err(|e| format!("Could not resolve resource dir: {e}"))?;
 
     if resource_dir.join("pyproject.toml").exists() {
         return Ok(resource_dir);
+    }
+
+    // Tauri v2 maps "../../<file>" resources into "_up_/_up_/<file>" in the resource dir
+    let prefixed = resource_dir.join("_up_").join("_up_");
+    if prefixed.join("pyproject.toml").exists() {
+        return Ok(prefixed);
     }
 
     Err("Could not find Forge project root (pyproject.toml)".to_string())
@@ -257,4 +270,13 @@ pub async fn initialize_workspace(
     workspace::save_config(&config)?;
 
     Ok(())
+}
+
+/// Return the path to the log file so the UI can show it in error messages.
+#[tauri::command]
+pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
+    let log_dir = app.path().app_log_dir()
+        .map_err(|e| format!("Could not resolve log dir: {e}"))?;
+    let log_file = log_dir.join("forge.log");
+    Ok(log_file.to_string_lossy().to_string())
 }

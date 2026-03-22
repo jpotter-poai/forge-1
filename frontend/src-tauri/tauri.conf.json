@@ -38,6 +38,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": [
+      "../../pyproject.toml",
+      "../../requirements.txt",
+      "../../backend/**/*",
+      "../../toy_datasets/**/*",
+      "../../blocks/**/*"
+    ],
     "windows": {
       "allowDowngrades": false
     }

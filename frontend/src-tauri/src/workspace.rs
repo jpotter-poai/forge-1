@@ -99,9 +99,10 @@ pub fn initialize_workspace(workspace_dir: &str, forge_root: &PathBuf) -> Result
 }
 
 /// Write the .env file for the backend, pointing at the workspace directories.
+/// Writes to both forge_root (for dev) and the Forge data dir (for production,
+/// where the backend cwd is the data dir, not the source tree).
 pub fn write_env_file(forge_root: &PathBuf, workspace_dir: &str) -> Result<(), String> {
     let workspace = PathBuf::from(workspace_dir);
-    let env_path = forge_root.join(".env");
 
     let contents = format!(
         "CHECKPOINT_DIR={checkpoints}\n\
@@ -109,15 +110,25 @@ pub fn write_env_file(forge_root: &PathBuf, workspace_dir: &str) -> Result<(), S
          BLOCKS_DIR=./blocks\n\
          DEFAULT_FILE_PATH={datasets}\n\
          LOG_LEVEL=INFO\n\
-         CORS_ORIGINS=http://localhost:40963,https://tauri.localhost,tauri://localhost\n",
+         CORS_ORIGINS=http://tauri.localhost,https://tauri.localhost,http://localhost:1420\n",
         checkpoints = workspace.join("checkpoints").to_string_lossy(),
         pipelines = workspace.join("pipelines").to_string_lossy(),
         datasets = workspace.join("datasets").to_string_lossy(),
     );
 
-    std::fs::write(&env_path, &contents)
-        .map_err(|e| format!("Failed to write .env: {e}"))?;
-
+    // Write to forge_root (works in dev where cwd = repo root)
+    let env_path = forge_root.join(".env");
+    let _ = std::fs::write(&env_path, &contents);
     info!("[workspace] Wrote .env to {}", env_path.display());
+
+    // Also write to the Forge data dir (production: backend cwd = data dir)
+    if let Some(data_dir) = crate::python::forge_data_dir() {
+        let _ = std::fs::create_dir_all(&data_dir);
+        let data_env = data_dir.join(".env");
+        std::fs::write(&data_env, &contents)
+            .map_err(|e| format!("Failed to write .env to data dir: {e}"))?;
+        info!("[workspace] Wrote .env to {}", data_env.display());
+    }
+
     Ok(())
 }

@@ -14,7 +14,7 @@ name = "forge"
 version = "0.1.0"
 description = "Visual block-based experimentation framework for interactive data science pipelines"
 authors = [{name = "Jonathan Potter"}]
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = [
   "pandas>=2.2",

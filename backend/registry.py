@@ -205,6 +205,17 @@ class BlockRegistry:
 
     def discover(self, force_reload: bool = False) -> None:
         if not self.blocks_dir.exists():
+            # In production (installed via pip), blocks_dir may be relative to cwd
+            # which doesn't contain the blocks. Fall back to the installed package location.
+            try:
+                package = importlib.import_module(self.package_name)
+                if package.__file__:
+                    pkg_dir = Path(package.__file__).parent
+                    if pkg_dir.exists():
+                        self.blocks_dir = pkg_dir
+            except ImportError:
+                pass
+        if not self.blocks_dir.exists():
             raise FileNotFoundError(f"Blocks directory not found: {self.blocks_dir}")
 
         self._blocks = {}

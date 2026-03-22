@@ -12,9 +12,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_log::Builder::default()
-                .level(log::LevelFilter::Debug)
+                .level(log::LevelFilter::Info)
+                .max_file_size(2_000_000) // 2 MB cap, rotates automatically (keeps 1 file)
                 .target(tauri_plugin_log::Target::new(
                     tauri_plugin_log::TargetKind::Stdout,
+                ))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir { file_name: Some("forge.log".into()) },
                 ))
                 .build(),
         )
@@ -30,6 +34,7 @@ pub fn run() {
             commands::initialize_workspace,
             commands::load_settings,
             commands::save_settings,
+            commands::get_log_path,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
