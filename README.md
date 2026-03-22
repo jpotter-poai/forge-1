@@ -16,35 +16,19 @@ Forge fixes this. Every node checkpoints its output. Every checkpoint carries it
 - MCP server over stdio (`python -m Forge mcp`) and streamable HTTP (`/mcp`), with 32 tools covering the full pipeline lifecycle — create, edit, run, poll, and inspect results.
 - Onboarding tour, workspace setup wizard, settings modal, and in-app file browser included.
 
-## Architecture
+## Adding Custom Blocks
+*Coming Soon*: A built-in UI for importing your own custom blocks.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    React Frontend                        │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │          React Flow DAG Editor                   │    │
-│  │  ┌──────┐    ┌──────────┐    ┌───────────┐     │    │
-│  │  │ Load ├───►│ Normalize├───►│  Cluster  │     │    │
-│  │  │ Data │    │  Rows    │    │  K-Means  │     │    │
-│  │  └──────┘    └────┬─────┘    └───────────┘     │    │
-│  │                   │                              │    │
-│  │                   └─────────►┌───────────┐      │    │
-│  │                              │  Heatmap  │      │    │
-│  │                              └───────────┘      │    │
-│  └─────────────────────────────────────────────────┘    │
-│                           │                              │
-│                    WebSocket + REST                       │
-└───────────────────────────┬─────────────────────────────┘
-                            │
-┌───────────────────────────┴─────────────────────────────┐
-│                   FastAPI Backend                         │
-│                                                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │ Block        │  │ Pipeline     │  │ Checkpoint   │  │
-│  │ Registry     │  │ Engine       │  │ Store        │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-└──────────────────────────────────────────────────────────┘
-```
+For now, the registry scans site-packages/blocks/ in the venv via pkgutil.iter_modules, so any .py file there that contains BaseBlock subclasses gets auto-discovered on restart.
+
+Steps:
+
+1. Find the blocks folder:
+`%LOCALAPPDATA%\Forge\venv\Lib\site-packages\blocks\`
+2. Drop the file in: Copy special.py into that folder.
+3. Install extra dependencies (if any — this file needs scikit-learn):
+`%LOCALAPPDATA%\Forge\venv\Scripts\pip install scikit-learn`
+4. Restart Forge. Blocks appear in the toolbox automatically.
 
 ### Frontend: React + React Flow + TypeScript
 
