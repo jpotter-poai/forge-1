@@ -9,7 +9,7 @@ import {
   type NodeProps,
   type ResizeParams,
 } from "@xyflow/react";
-import { checkpointImageUrl } from "@/api/client";
+import { checkpointImageUrl, getCheckpointProvenance } from "@/api/client";
 import type { ForgeNodeData } from "@/hooks/usePipeline";
 
 type ForgeNode = Node<ForgeNodeData, "forgeBlock">;
@@ -117,14 +117,19 @@ export const BlockNode = memo(function BlockNode({
     setPrimaryImageAspect(null);
     autoSizedCheckpointRef.current = null;
     idleNormalizedRef.current = false;
-    fetch(`/api/checkpoints/${checkpointId}/provenance`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((prov: { images?: string[] } | null) => {
-        if (prov?.images?.length) setImages(prov.images);
+    let cancelled = false;
+    void getCheckpointProvenance(checkpointId)
+      .then((prov) => {
+        if (!cancelled && prov.images?.length) {
+          setImages(prov.images);
+        }
       })
       .catch(() => {
         /* provenance unavailable — show nothing */
       });
+    return () => {
+      cancelled = true;
+    };
   }, [isViz, checkpointId]);
 
   // Clear thumbnails when node goes stale or idle so old images don't linger
