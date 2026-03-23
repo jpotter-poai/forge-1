@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { getCheckpointPreview } from "@/api/client";
+import { getCheckpointPreview, getCheckpointProvenance } from "@/api/client";
 import { FileBrowser } from "./FileBrowser";
 import { ImageLightbox, ImageThumbnail } from "./ImagePreview";
 import type { ForgeNodeData } from "@/hooks/usePipeline";
@@ -715,16 +715,30 @@ function ImagesTab({
   const [tried, setTried] = useState(false);
 
   useEffect(() => {
-    if (!checkpointId) return;
-    fetch(`/api/checkpoints/${checkpointId}/provenance`)
-      .then((r) => (r.ok ? r.json() : null))
+    if (!checkpointId) {
+      setImages([]);
+      setTried(false);
+      return;
+    }
+    let cancelled = false;
+    setImages([]);
+    setTried(false);
+    void getCheckpointProvenance(checkpointId)
       .then((prov) => {
-        if (prov?.images && Array.isArray(prov.images)) {
-          setImages(prov.images as string[]);
+        if (cancelled) return;
+        if (Array.isArray(prov.images)) {
+          setImages(prov.images);
         }
         setTried(true);
       })
-      .catch(() => setTried(true));
+      .catch(() => {
+        if (!cancelled) {
+          setTried(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [checkpointId]);
 
   if (!checkpointId) {

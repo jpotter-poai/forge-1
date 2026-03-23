@@ -179,14 +179,30 @@ export async function getCheckpointPreview(
   return data;
 }
 
+export interface CheckpointProvenance {
+  images?: string[];
+  [key: string]: unknown;
+}
+
+export async function getCheckpointProvenance(
+  checkpointId: string,
+): Promise<CheckpointProvenance> {
+  const { data } = await http.get<CheckpointProvenance>(
+    `/checkpoints/${checkpointId}/provenance`,
+  );
+  return data;
+}
+
 export function checkpointImageUrl(
   checkpointId: string,
   filename: string,
 ): string {
+  ensureTauriBaseUrl();
+  const encodedFilename = encodeURIComponent(filename);
   if (_baseURL.startsWith("http")) {
-    return `${_baseURL}/checkpoints/${checkpointId}/images/${filename}`;
+    return `${_baseURL}/checkpoints/${checkpointId}/images/${encodedFilename}`;
   }
-  return `/api/checkpoints/${checkpointId}/images/${filename}`;
+  return `/api/checkpoints/${checkpointId}/images/${encodedFilename}`;
 }
 
 // ── File browser ─────────────────────────────────────────────────────────
