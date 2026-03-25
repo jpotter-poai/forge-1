@@ -240,6 +240,8 @@ export interface CustomBlockEntry {
 
 export interface InstallBlockResult {
   success: boolean;
+  conflict: boolean;
+  suggested_filename: string | null;
   block_name: string;
   filename: string;
   installed_packages: string[];
@@ -253,11 +255,15 @@ export async function listCustomBlocks(): Promise<CustomBlockEntry[]> {
   return data;
 }
 
-export async function installCustomBlock(file: File): Promise<InstallBlockResult> {
+export async function installCustomBlock(
+  file: File,
+  conflictResolution?: "overwrite" | "rename",
+): Promise<InstallBlockResult> {
   const formData = new FormData();
   formData.append("file", file);
   const { data } = await http.post<InstallBlockResult>("/custom-blocks/install", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+    params: conflictResolution ? { conflict_resolution: conflictResolution } : undefined,
   });
   return data;
 }
