@@ -58,11 +58,24 @@ def env_or_default(key: str, default: str) -> str:
     return dotenv_values.get(key, default)
 
 
+def _default_custom_blocks_dir() -> str:
+    """Return the platform-specific default directory for user-installed custom blocks."""
+    import sys
+    if sys.platform == "win32":
+        docs = Path.home() / "Documents"
+    elif sys.platform == "darwin":
+        docs = Path.home() / "Documents"
+    else:
+        docs = Path.home() / "Documents"
+    return str(docs / "Forge" / "custom_blocks")
+
+
 @dataclass(slots=True)
 class Settings:
     checkpoint_dir: str = "./checkpoints"
     pipeline_dir: str = "./pipelines"
     blocks_dir: str = "./blocks"
+    custom_blocks_dir: str = field(default_factory=_default_custom_blocks_dir)
     default_file_path: str = ""
     log_level: str = "INFO"
     cors_origins: list[str] = field(default_factory=lambda: [
@@ -80,6 +93,9 @@ class Settings:
             checkpoint_dir=env_or_default("CHECKPOINT_DIR", "./checkpoints"),
             pipeline_dir=env_or_default("PIPELINE_DIR", "./pipelines"),
             blocks_dir=env_or_default("BLOCKS_DIR", "./blocks"),
+            custom_blocks_dir=env_or_default(
+                "CUSTOM_BLOCKS_DIR", _default_custom_blocks_dir()
+            ),
             default_file_path=env_or_default("DEFAULT_FILE_PATH", ""),
             log_level=env_or_default("LOG_LEVEL", "INFO"),
             cors_origins=cors or ["http://localhost:5173"],

@@ -3,8 +3,10 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 import importlib
+import importlib.util
 import inspect
 import pkgutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -193,15 +195,25 @@ class BlockSpec:
     param_descriptions: dict[str, str]
     required_params: list[str]
     param_examples: dict[str, Any]
+    is_custom: bool = False
+    custom_filename: str | None = None
 
 
 class BlockRegistry:
     def __init__(
-        self, blocks_dir: str | Path = "blocks", package_name: str = "blocks"
+        self,
+        blocks_dir: str | Path = "blocks",
+        package_name: str = "blocks",
+        custom_blocks_dir: str | Path | None = None,
     ) -> None:
         self.blocks_dir = Path(blocks_dir)
         self.package_name = package_name
+        self.custom_blocks_dir: Path | None = (
+            Path(custom_blocks_dir) if custom_blocks_dir else None
+        )
         self._blocks: dict[str, type[BaseBlock]] = {}
+        # Track which block keys came from custom files (filename stem → set of keys)
+        self._custom_block_keys: dict[str, set[str]] = {}
 
     def discover(self, force_reload: bool = False) -> None:
         if not self.blocks_dir.exists():
@@ -219,6 +231,7 @@ class BlockRegistry:
             raise FileNotFoundError(f"Blocks directory not found: {self.blocks_dir}")
 
         self._blocks = {}
+        self._custom_block_keys = {}
         package = importlib.import_module(self.package_name)
         if package.__file__ is None:
             raise ImportError(
@@ -243,6 +256,85 @@ class BlockRegistry:
                     continue
                 self._validate_block_metadata(cls)
                 self._blocks[cls.__name__] = cls
+
+        # Load custom blocks from the user directory
+        if self.custom_blocks_dir and self.custom_blocks_dir.exists():
+            self._discover_custom_blocks(force_reload=force_reload)
+
+    def _discover_custom_blocks(self, force_reload: bool = False) -> None:
+        """Load BaseBlock subclasses from loose .py files in custom_blocks_dir."""
+        import types as _types
+
+        assert self.custom_blocks_dir is not None
+        for py_file in sorted(self.custom_blocks_dir.glob("*.py")):
+            if py_file.name.startswith("_"):
+                continue
+            stem = py_file.stem
+            module_name = f"_forge_custom_{stem}"
+
+            try:
+                if module_name in sys.modules and force_reload:
+                    del sys.modules[module_name]
+
+                if module_name not in sys.modules:
+                    spec = importlib.util.spec_from_file_location(module_name, py_file)
+                    if spec is None or spec.loader is None:
+                        continue
+                    module = _types.ModuleType(module_name)
+                    module.__file__ = str(py_file)
+                    sys.modules[module_name] = module
+                    spec.loader.exec_module(module)  # type: ignore[attr-defined]
+                else:
+                    module = sys.modules[module_name]
+
+                keys_for_file: set[str] = set()
+                for _, cls in inspect.getmembers(module, inspect.isclass):
+                    if (
+                        not issubclass(cls, BaseBlock)
+                        or cls is BaseBlock
+                        or inspect.isabstract(cls)
+                    ):
+                        continue
+                    try:
+                        self._validate_block_metadata(cls)
+                    except (ValueError, TypeError):
+                        continue
+                    # Mark as custom
+                    cls._is_custom = True  # type: ignore[attr-defined]
+                    cls._custom_filename = py_file.name  # type: ignore[attr-defined]
+                    self._blocks[cls.__name__] = cls
+                    keys_for_file.add(cls.__name__)
+
+                self._custom_block_keys[stem] = keys_for_file
+
+            except Exception:
+                # Don't crash the whole registry on a broken custom block
+                import traceback
+                traceback.print_exc()
+                continue
+
+    def reload_custom_blocks(self) -> None:
+        """Hot-reload all custom blocks (call after installing a new one)."""
+        # Remove custom block entries from _blocks
+        for keys in self._custom_block_keys.values():
+            for key in keys:
+                self._blocks.pop(key, None)
+        self._custom_block_keys = {}
+
+        if self.custom_blocks_dir and self.custom_blocks_dir.exists():
+            self._discover_custom_blocks(force_reload=True)
+
+    def is_custom(self, block_key: str) -> bool:
+        """Return True if block_key refers to a user-installed custom block."""
+        cls = self._blocks.get(block_key)
+        return bool(cls and getattr(cls, "_is_custom", False))
+
+    def custom_filename(self, block_key: str) -> str | None:
+        """Return the .py filename for a custom block, or None."""
+        cls = self._blocks.get(block_key)
+        if cls is None:
+            return None
+        return getattr(cls, "_custom_filename", None)
 
     def _validate_block_metadata(self, block_cls: type[BaseBlock]) -> None:
         required = ("name", "version", "category")
@@ -282,6 +374,8 @@ class BlockRegistry:
             )
             description = self._description_for_block(block_cls)
             param_schema = _extract_param_specs(block_cls)
+            is_custom = bool(getattr(block_cls, "_is_custom", False))
+            custom_fn = getattr(block_cls, "_custom_filename", None)
             specs.append(
                 BlockSpec(
                     key=key,
@@ -305,6 +399,8 @@ class BlockRegistry:
                     param_examples={
                         item.key: deepcopy(item.example) for item in param_schema
                     },
+                    is_custom=is_custom,
+                    custom_filename=custom_fn if isinstance(custom_fn, str) else None,
                 )
             )
         return specs

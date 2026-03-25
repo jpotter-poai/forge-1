@@ -38,6 +38,11 @@ def list_blocks(services: AppServices = Depends(get_services)) -> list[dict]:
             "param_descriptions": spec.param_descriptions,
             "required_params": spec.required_params,
             "param_examples": spec.param_examples,
+            "is_custom": spec.is_custom,
+            "custom_filename": spec.custom_filename,
         }
         for spec in services.registry.all_specs()
     ]
+
+
+

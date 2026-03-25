@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import type { BlockSpec } from "@/types/pipeline";
 
@@ -6,6 +6,8 @@ interface BlockPaletteProps {
   blocks: BlockSpec[];
   onDragStart: (spec: BlockSpec) => void;
   onCommentDragStart: () => void;
+  onExportBlock?: (spec: BlockSpec) => void;
+  onDeleteBlock?: (spec: BlockSpec) => void;
 }
 
 const CATEGORY_ORDER = [
@@ -19,6 +21,7 @@ const CATEGORY_ORDER = [
   "Dimensionality",
   "Visualization",
   "Special",
+  "Custom",
 ];
 
 const CATEGORY_ICON: Record<string, string> = {
@@ -32,6 +35,7 @@ const CATEGORY_ICON: Record<string, string> = {
   Dimensionality: "ℝ",
   Visualization: "📈",
   Special: "★",
+  Custom: "⚡",
 };
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -45,9 +49,36 @@ const CATEGORY_COLOR: Record<string, string> = {
   Factorization: "text-orange-400",
   Dimensionality: "text-teal-400",
   Special: "text-yellow-400",
+  Custom: "text-purple-400",
 };
 
-export function BlockPalette({ blocks, onDragStart, onCommentDragStart }: BlockPaletteProps) {
+// Stable color assignment for unknown categories using a hash
+function categoryColor(cat: string): string {
+  if (CATEGORY_COLOR[cat]) return CATEGORY_COLOR[cat];
+  const POOL = [
+    "text-rose-400",
+    "text-fuchsia-400",
+    "text-lime-400",
+    "text-cyan-400",
+    "text-indigo-400",
+    "text-red-400",
+  ];
+  let hash = 0;
+  for (let i = 0; i < cat.length; i++) hash = (hash * 31 + cat.charCodeAt(i)) >>> 0;
+  return POOL[hash % POOL.length];
+}
+
+function categoryIcon(cat: string): string {
+  return CATEGORY_ICON[cat] ?? "◈";
+}
+
+export function BlockPalette({
+  blocks,
+  onDragStart,
+  onCommentDragStart,
+  onExportBlock,
+  onDeleteBlock,
+}: BlockPaletteProps) {
   const [search, setSearch] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -59,13 +90,15 @@ export function BlockPalette({ blocks, onDragStart, onCommentDragStart }: BlockP
       if (!map.has(b.category)) map.set(b.category, []);
       map.get(b.category)!.push(b);
     }
-    // Sort categories
+    // Sort categories: known order first, then alphabetical for unknowns
     const ordered = new Map<string, BlockSpec[]>();
     for (const cat of CATEGORY_ORDER) {
       if (map.has(cat)) ordered.set(cat, map.get(cat)!);
     }
-    for (const [cat, bs] of map) {
-      if (!ordered.has(cat)) ordered.set(cat, bs);
+    // Add any categories not in CATEGORY_ORDER (user-defined)
+    const remaining = [...map.keys()].filter((c) => !ordered.has(c)).sort();
+    for (const cat of remaining) {
+      ordered.set(cat, map.get(cat)!);
     }
     return ordered;
   }, [blocks, search]);
@@ -139,9 +172,9 @@ export function BlockPalette({ blocks, onDragStart, onCommentDragStart }: BlockP
             <div key={category} data-tour-category={category}>
               <button
                 onClick={() => toggleCategory(category)}
-                className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider rounded hover:bg-forge-border/30 transition-colors duration-100 ${CATEGORY_COLOR[category] ?? "text-forge-muted"}`}
+                className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider rounded hover:bg-forge-border/30 transition-colors duration-100 ${categoryColor(category)}`}
               >
-                <span aria-hidden="true">{CATEGORY_ICON[category] ?? "•"}</span>
+                <span aria-hidden="true">{categoryIcon(category)}</span>
                 <span className="flex-1 text-left">{category}</span>
                 <span className={`text-forge-muted transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`}>
                   ▾
@@ -150,7 +183,14 @@ export function BlockPalette({ blocks, onDragStart, onCommentDragStart }: BlockP
               {!isCollapsed && (
                 <div className="space-y-1 mt-1">
                   {specs.map((spec, i) => (
-                    <PaletteBlock key={spec.key} spec={spec} index={i} onDragStart={onDragStart} />
+                    <PaletteBlock
+                      key={spec.key}
+                      spec={spec}
+                      index={i}
+                      onDragStart={onDragStart}
+                      onExport={onExportBlock}
+                      onDelete={onDeleteBlock}
+                    />
                   ))}
                 </div>
               )}
@@ -188,19 +228,24 @@ export function BlockPalette({ blocks, onDragStart, onCommentDragStart }: BlockP
   );
 }
 
-// ── Palette block with hover tooltip ─────────────────────────────────────────
+// ── Palette block with hover tooltip and right-click context menu ─────────────
 
 function PaletteBlock({
   spec,
   index,
   onDragStart,
+  onExport,
+  onDelete,
 }: {
   spec: BlockSpec;
   index: number;
   onDragStart: (spec: BlockSpec) => void;
+  onExport?: (spec: BlockSpec) => void;
+  onDelete?: (spec: BlockSpec) => void;
 }) {
   const [showTooltip, setShowTooltip] = useState(false);
   const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ top: number; left: number } | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const blockRef = useRef<HTMLDivElement>(null);
 
@@ -223,6 +268,17 @@ function PaletteBlock({
     setShowTooltip(false);
   };
 
+  const handleContextMenu = (e: MouseEvent) => {
+    // Only show context menu for custom blocks (or always if export/delete available)
+    if (!spec.is_custom && !onExport && !onDelete) return;
+    e.preventDefault();
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    setShowTooltip(false);
+    setContextMenu({ top: e.clientY, left: e.clientX });
+  };
+
+  const closeContextMenu = () => setContextMenu(null);
+
   return (
     <>
       <div
@@ -236,6 +292,7 @@ function PaletteBlock({
         }}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        onContextMenu={handleContextMenu}
         className="
           mx-1 px-3 py-2 rounded-md
           bg-forge-bg border border-forge-border
@@ -249,7 +306,12 @@ function PaletteBlock({
         "
         style={{ animationDelay: `${index * 30}ms` }}
       >
-        <div className="font-medium truncate">{spec.name}</div>
+        <div className="font-medium truncate flex items-center gap-1">
+          {spec.name}
+          {spec.is_custom && (
+            <span className="text-[9px] text-purple-400 font-normal ml-auto shrink-0" title="User-installed block">⚡</span>
+          )}
+        </div>
         {spec.n_inputs === 0 && (
           <div className="text-[10px] text-forge-muted mt-0.5">Source</div>
         )}
@@ -280,10 +342,85 @@ function PaletteBlock({
             <div className="mt-1.5 flex items-center gap-2 text-[10px] text-forge-muted/70">
               <span>v{spec.version}</span>
               {spec.n_inputs > 0 && <span>· {spec.n_inputs} input{spec.n_inputs > 1 ? "s" : ""}</span>}
+              {spec.is_custom && <span className="text-purple-400">· custom</span>}
             </div>
           </div>,
           document.body,
         )}
+
+      {/* Context menu for custom blocks */}
+      {contextMenu && spec.is_custom &&
+        createPortal(
+          <ContextMenuOverlay
+            top={contextMenu.top}
+            left={contextMenu.left}
+            onClose={closeContextMenu}
+            onExport={onExport ? () => { closeContextMenu(); onExport(spec); } : undefined}
+            onDelete={onDelete ? () => { closeContextMenu(); onDelete(spec); } : undefined}
+          />,
+          document.body,
+        )}
     </>
+  );
+}
+
+// ── Context menu overlay ───────────────────────────────────────────────────────
+
+function ContextMenuOverlay({
+  top,
+  left,
+  onClose,
+  onExport,
+  onDelete,
+}: {
+  top: number;
+  left: number;
+  onClose: () => void;
+  onExport?: () => void;
+  onDelete?: () => void;
+}) {
+  // Close on outside click or Escape
+  const ref = useRef<HTMLDivElement>(null);
+
+  return createPortal(
+    <>
+      {/* Invisible full-screen click catcher */}
+      <div
+        className="fixed inset-0 z-[9998]"
+        onClick={onClose}
+        onContextMenu={(e) => { e.preventDefault(); onClose(); }}
+      />
+      <div
+        ref={ref}
+        className="
+          fixed z-[9999] min-w-[160px] overflow-hidden rounded-md
+          border border-forge-border bg-forge-surface
+          shadow-2xl shadow-black/50
+          text-sm text-forge-text
+          animate-fade-in
+        "
+        style={{ top, left }}
+      >
+        {onExport && (
+          <button
+            onClick={onExport}
+            className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-forge-bg/60 transition-colors text-xs"
+          >
+            <span aria-hidden="true">↓</span>
+            Export block (.py)
+          </button>
+        )}
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-forge-bg/60 transition-colors text-xs text-forge-error"
+          >
+            <span aria-hidden="true">✕</span>
+            Uninstall block
+          </button>
+        )}
+      </div>
+    </>,
+    document.body,
   );
 }

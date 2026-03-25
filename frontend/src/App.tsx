@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   applyNodeChanges,
   applyEdgeChanges,
@@ -11,7 +11,14 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { exportPipelinePng, exportPipelinePdf } from "./utils/exportCanvas";
-import { downloadPipelineExport } from "./api/client";
+import {
+  downloadPipelineExport,
+  installCustomBlock,
+  deleteCustomBlock,
+  downloadBlockTemplate,
+  exportCustomBlock,
+  type InstallBlockResult,
+} from "./api/client";
 import { BlockPalette } from "./components/BlockPalette";
 import { Canvas } from "./components/Canvas";
 import { NodeInspector } from "./components/NodeInspector";
@@ -103,7 +110,80 @@ export default function App() {
     savePipeline,
     prettifyPipeline,
     loadPipeline,
+    reloadBlocks,
   } = usePipeline();
+
+  // ── Custom block install flow ────────────────────────────────────────────────
+
+  const [installState, setInstallState] = useState<
+    | { phase: "idle" }
+    | { phase: "installing"; filename: string }
+    | { phase: "result"; result: InstallBlockResult }
+    | { phase: "error"; message: string }
+  >({ phase: "idle" });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const runInstall = useCallback(
+    async (file: File) => {
+      setInstallState({ phase: "installing", filename: file.name });
+      try {
+        const result = await installCustomBlock(file);
+        setInstallState({ phase: "result", result });
+        if (result.success) {
+          // Refresh block list so new block appears in palette immediately
+          reloadBlocks();
+        }
+      } catch (err: unknown) {
+        setInstallState({
+          phase: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [reloadBlocks],
+  );
+
+  const handleDropBlockFile = useCallback(
+    (file: File) => {
+      void runInstall(file);
+    },
+    [runInstall],
+  );
+
+  const handleInstallBlockFromFile = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) void runInstall(file);
+      e.target.value = "";
+    },
+    [runInstall],
+  );
+
+  const handleDownloadTemplate = useCallback(() => {
+    void downloadBlockTemplate();
+  }, []);
+
+  const handleExportBlock = useCallback((spec: BlockSpec) => {
+    if (spec.custom_filename) {
+      void exportCustomBlock(spec.custom_filename);
+    }
+  }, []);
+
+  const handleDeleteBlock = useCallback(
+    (spec: BlockSpec) => {
+      if (!spec.custom_filename) return;
+      if (!confirm(`Uninstall "${spec.name}"? This cannot be undone.`)) return;
+      void deleteCustomBlock(spec.custom_filename).then(() => {
+        reloadBlocks();
+      });
+    },
+    [reloadBlocks],
+  );
 
   // ── Onboarding ──────────────────────────────────────────────────────────────
 
@@ -527,6 +607,15 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-forge-bg text-forge-text overflow-hidden">
+      {/* Hidden file input for "Install Block from File…" */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".py"
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+
       <Toolbar
         pipelineName={pipelineName}
         pipelineId={pipelineId}
@@ -550,6 +639,8 @@ export default function App() {
         onExportNotebook={() => {
           void handleExportBundle("notebook");
         }}
+        onDownloadTemplate={handleDownloadTemplate}
+        onInstallBlock={handleInstallBlockFromFile}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -563,6 +654,8 @@ export default function App() {
             setDraggingComment(true);
             setDraggingSpec(null);
           }}
+          onExportBlock={handleExportBlock}
+          onDeleteBlock={handleDeleteBlock}
         />
 
         <Canvas
@@ -581,6 +674,7 @@ export default function App() {
           }}
           onDropBlock={handleDropBlock}
           onDropComment={handleDropComment}
+          onDropBlockFile={handleDropBlockFile}
           draggingSpec={draggingSpec}
           draggingComment={draggingComment}
           onCanvasReady={(instance, wrapper) => {
@@ -620,6 +714,14 @@ export default function App() {
           onDismiss={() => setShowReplayTourToast(false)}
         />
       )}
+
+      {/* Block install progress / result modal */}
+      {installState.phase !== "idle" && (
+        <BlockInstallModal
+          state={installState}
+          onClose={() => setInstallState({ phase: "idle" })}
+        />
+      )}
     </div>
   );
 }
@@ -649,6 +751,101 @@ function ReplayTourToast({
         >
           Dismiss
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Block install modal ────────────────────────────────────────────────────────
+
+function BlockInstallModal({
+  state,
+  onClose,
+}: {
+  state:
+    | { phase: "installing"; filename: string }
+    | { phase: "result"; result: InstallBlockResult }
+    | { phase: "error"; message: string };
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && state.phase !== "installing") onClose();
+      }}
+    >
+      <div className="w-full max-w-sm bg-forge-surface border border-forge-border rounded-lg shadow-2xl overflow-hidden animate-fade-in-scale">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-forge-border">
+          <h2 className="text-forge-text font-semibold text-sm">
+            {state.phase === "installing" ? "Installing Block…" :
+             state.phase === "result" ? (state.result.success ? "Block Installed" : "Install Failed") :
+             "Install Error"}
+          </h2>
+          {state.phase !== "installing" && (
+            <button onClick={onClose} aria-label="Close" className="text-forge-muted hover:text-forge-text transition-colors">
+              ✕
+            </button>
+          )}
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          {state.phase === "installing" && (
+            <div className="flex items-center gap-3">
+              <span className="inline-block w-3 h-3 rounded-full bg-forge-accent animate-pulse" />
+              <p className="text-forge-text text-sm">Installing <span className="font-mono text-xs text-forge-muted">{state.filename}</span>…</p>
+            </div>
+          )}
+
+          {state.phase === "result" && (
+            <>
+              <p className={`text-sm font-medium ${state.result.success ? "text-forge-complete" : "text-forge-error"}`}>
+                {state.result.success ? "✓ " : "⚠ "}{state.result.message}
+              </p>
+              {state.result.installed_packages.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-forge-muted mb-1">Packages installed:</p>
+                  <ul className="space-y-0.5">
+                    {state.result.installed_packages.map((pkg) => (
+                      <li key={pkg} className="text-xs font-mono text-forge-complete bg-forge-complete/10 px-2 py-0.5 rounded">
+                        {pkg}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {state.result.errors.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-forge-muted mb-1">Errors:</p>
+                  <ul className="space-y-0.5">
+                    {state.result.errors.map((err, i) => (
+                      <li key={i} className="text-xs text-forge-error">
+                        {err}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {state.result.success && (
+                <p className="text-xs text-forge-muted">
+                  The block is now available in the palette under <span className="text-forge-text font-medium">Plugins</span>.
+                </p>
+              )}
+            </>
+          )}
+
+          {state.phase === "error" && (
+            <p className="text-sm text-forge-error">{state.message}</p>
+          )}
+        </div>
+
+        {state.phase !== "installing" && (
+          <div className="flex justify-end px-5 py-3 border-t border-forge-border">
+            <button onClick={onClose} className="btn-ghost">
+              Close
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

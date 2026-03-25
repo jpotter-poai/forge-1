@@ -25,6 +25,8 @@ interface ToolbarProps {
   onExportPdf?: () => void;
   onExportPython?: () => void;
   onExportNotebook?: () => void;
+  onDownloadTemplate?: () => void;
+  onInstallBlock?: () => void;
 }
 
 export function Toolbar({
@@ -46,6 +48,8 @@ export function Toolbar({
   onExportPdf,
   onExportPython,
   onExportNotebook,
+  onDownloadTemplate,
+  onInstallBlock,
 }: ToolbarProps) {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -238,6 +242,53 @@ export function Toolbar({
             >
               Jupyter Notebook
             </button>
+          </div>
+        </div>
+
+        {/* Plugins menu */}
+        <div className="relative group">
+          <button
+            className="btn-ghost inline-flex items-center gap-1"
+            title="Manage custom block plugins"
+          >
+            <span>Plugins</span>
+            <span className="text-[10px]">▾</span>
+          </button>
+
+          <div
+            className="
+              absolute right-0 top-full z-50 mt-1 min-w-52 overflow-hidden rounded-md
+              border border-forge-border bg-forge-surface shadow-2xl
+              opacity-0 pointer-events-none translate-y-1
+              transition-all duration-150
+              group-hover:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0
+              group-focus-within:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0
+            "
+          >
+            <div className="px-3 py-2 border-b border-forge-border">
+              <p className="text-[10px] text-forge-muted font-medium uppercase tracking-wider">Block Plugins</p>
+            </div>
+            <button
+              onClick={onDownloadTemplate}
+              className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors flex items-center gap-2"
+              title="Download a template .py file showing how to build a custom block"
+            >
+              <span aria-hidden="true" className="text-forge-muted">↓</span>
+              Get Block Template
+            </button>
+            <button
+              onClick={onInstallBlock}
+              className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors flex items-center gap-2"
+              title="Pick a .py file to install as a custom block"
+            >
+              <span aria-hidden="true" className="text-forge-muted">+</span>
+              Install Block from File…
+            </button>
+            <div className="px-3 py-2 border-t border-forge-border">
+              <p className="text-[10px] text-forge-muted leading-relaxed">
+                Or drag a .py file onto the canvas to install.
+              </p>
+            </div>
           </div>
         </div>
 

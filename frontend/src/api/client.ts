@@ -229,6 +229,67 @@ export async function browseFiles(
   return data;
 }
 
+// ── Custom block plugins ──────────────────────────────────────────────────────
+
+export interface CustomBlockEntry {
+  filename: string;
+  stem: string;
+  path: string;
+  requirements: string[];
+}
+
+export interface InstallBlockResult {
+  success: boolean;
+  block_name: string;
+  filename: string;
+  installed_packages: string[];
+  skipped_packages: string[];
+  errors: string[];
+  message: string;
+}
+
+export async function listCustomBlocks(): Promise<CustomBlockEntry[]> {
+  const { data } = await http.get<CustomBlockEntry[]>("/custom-blocks");
+  return data;
+}
+
+export async function installCustomBlock(file: File): Promise<InstallBlockResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await http.post<InstallBlockResult>("/custom-blocks/install", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
+export async function deleteCustomBlock(filename: string): Promise<void> {
+  await http.delete(`/custom-blocks/${encodeURIComponent(filename)}`);
+}
+
+export async function downloadBlockTemplate(name = "My Custom Block"): Promise<void> {
+  const response = await http.get<Blob>("/custom-blocks/template", {
+    params: { name },
+    responseType: "blob",
+  });
+  const filename = filenameFromDisposition(
+    response.headers["content-disposition"],
+    "custom_block_template.py",
+  );
+  downloadBlob(response.data, filename);
+}
+
+export async function exportCustomBlock(filename: string): Promise<void> {
+  const response = await http.get<Blob>(
+    `/custom-blocks/${encodeURIComponent(filename)}/export`,
+    { responseType: "blob" },
+  );
+  const dlFilename = filenameFromDisposition(
+    response.headers["content-disposition"],
+    filename,
+  );
+  downloadBlob(response.data, dlFilename);
+}
+
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 
 export function openExecutionSocket(pipelineId: string): WebSocket {
