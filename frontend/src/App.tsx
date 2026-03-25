@@ -56,21 +56,33 @@ function hasTextSelection(): boolean {
 }
 
 // ── Cross-tab clipboard via localStorage ────────────────────────────────────
-const FORGE_CLIPBOARD_KEY = "forge-clipboard-v1";
+const FORGE_CLIPBOARD_KEY = "forge-clipboard-v2";
 
-function writeClipboard(nodes: Node<ForgeNodeData>[]) {
+interface ClipboardEntry {
+  id: string;
+  nodes: Node<ForgeNodeData>[];
+}
+
+function generateClipboardId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function writeClipboard(nodes: Node<ForgeNodeData>[]): string {
+  const id = generateClipboardId();
   try {
-    localStorage.setItem(FORGE_CLIPBOARD_KEY, JSON.stringify(nodes));
+    const entry: ClipboardEntry = { id, nodes };
+    localStorage.setItem(FORGE_CLIPBOARD_KEY, JSON.stringify(entry));
   } catch {
     // localStorage full or unavailable — silent fail, in-memory clipboard still works
   }
+  return id;
 }
 
-function readClipboard(): Node<ForgeNodeData>[] | null {
+function readClipboard(): ClipboardEntry | null {
   try {
     const raw = localStorage.getItem(FORGE_CLIPBOARD_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as Node<ForgeNodeData>[];
+    return JSON.parse(raw) as ClipboardEntry;
   } catch {
     return null;
   }
@@ -271,6 +283,10 @@ export default function App() {
   const lastHistorySignatureRef = useRef<string | null>(null);
   const isApplyingUndoRef = useRef(false);
   const clipboardRef = useRef<Node<ForgeNodeData>[]>([]);
+  // Tracks the clipboard id that THIS instance last wrote to localStorage.
+  // If the stored id differs on paste, another instance wrote it and we must
+  // read from localStorage instead of the stale in-memory ref.
+  const lastWrittenIdRef = useRef<string | null>(null);
   const pasteDepthRef = useRef(0);
 
   const clearHistory = useCallback(() => {
@@ -425,21 +441,28 @@ export default function App() {
         const cloned = cloneValue(toCopy);
         clipboardRef.current = cloned;
         pasteDepthRef.current = 0;
-        // Write to cross-tab clipboard
-        writeClipboard(cloned);
+        // Write to cross-tab clipboard and record the id so paste knows
+        // whether a *different* instance has written since our last copy.
+        lastWrittenIdRef.current = writeClipboard(cloned);
         return;
       }
 
       if (key === "v" && !event.shiftKey) {
-        // Try in-memory clipboard first, fall back to cross-tab
-        let source = clipboardRef.current;
-        if (source.length === 0) {
-          const crossTab = readClipboard();
-          if (crossTab && crossTab.length > 0) {
-            source = crossTab;
-            clipboardRef.current = source;
-          }
+        // Always check localStorage first. If the stored id differs from the
+        // id this instance last wrote, another instance copied more recently
+        // and we must use that data instead of the stale in-memory ref.
+        const crossTab = readClipboard();
+        if (crossTab && crossTab.id !== lastWrittenIdRef.current) {
+          // A different instance (or a newer copy from any instance) owns the
+          // clipboard — use it and update our in-memory ref.
+          clipboardRef.current = crossTab.nodes;
+          lastWrittenIdRef.current = crossTab.id;
+        } else if (crossTab && clipboardRef.current.length === 0) {
+          // Same instance wrote it but in-memory is empty (e.g. fresh window
+          // that hasn't copied yet — load from storage as a fallback).
+          clipboardRef.current = crossTab.nodes;
         }
+        let source = clipboardRef.current;
         if (source.length === 0) return;
         event.preventDefault();
         pushHistorySnapshot();
