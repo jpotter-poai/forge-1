@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getMcpConfig, type McpConfigResponse } from "@/api/client";
 
 function detectTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -21,6 +22,13 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  // MCP config state
+  const [mcpConfig, setMcpConfig] = useState<McpConfigResponse | null>(null);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpError, setMcpError] = useState<string | null>(null);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [rawCopied, setRawCopied] = useState(false);
 
   // Load settings when the modal opens
   useEffect(() => {
@@ -46,6 +54,17 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
       setLoading(false);
     }
   }, [open, isTauri]);
+
+  // Load MCP config when the modal opens
+  useEffect(() => {
+    if (!open) return;
+    setMcpLoading(true);
+    setMcpError(null);
+    getMcpConfig()
+      .then((cfg) => setMcpConfig(cfg))
+      .catch(() => setMcpError("Could not load MCP config. Is the backend running?"))
+      .finally(() => setMcpLoading(false));
+  }, [open]);
 
   // Close on Escape
   useEffect(() => {
@@ -108,6 +127,44 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
     setSaveMsg(null);
     onClose();
+  };
+
+  const handleCopyPrompt = async () => {
+    if (!mcpConfig) return;
+    try {
+      await navigator.clipboard.writeText(mcpConfig.setup_prompt);
+      setPromptCopied(true);
+      setTimeout(() => setPromptCopied(false), 2500);
+    } catch {
+      // Fallback for environments where clipboard API is restricted
+      const ta = document.createElement("textarea");
+      ta.value = mcpConfig.setup_prompt;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+      setPromptCopied(true);
+      setTimeout(() => setPromptCopied(false), 2500);
+    }
+  };
+
+  const handleCopyRawConfig = async () => {
+    if (!mcpConfig) return;
+    const raw = JSON.stringify(mcpConfig.config_json, null, 2);
+    try {
+      await navigator.clipboard.writeText(raw);
+      setRawCopied(true);
+      setTimeout(() => setRawCopied(false), 2500);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = raw;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+      setRawCopied(true);
+      setTimeout(() => setRawCopied(false), 2500);
+    }
   };
 
   const hasChanges = config ? workspaceDir !== config.workspace_dir : false;
@@ -196,6 +253,66 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               </div>
             </>
           )}
+
+          {/* Divider before MCP section */}
+          <div className="border-t border-forge-border/50" />
+
+          {/* AI Tools / MCP Setup */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-forge-text">
+              AI Tools (MCP)
+            </label>
+            <p className="text-xs text-forge-muted">
+              Connect Claude Code, Codex, or other AI tools to Forge's MCP server.
+            </p>
+
+            {mcpLoading ? (
+              <p className="text-xs text-forge-muted animate-pulse py-1">
+                Resolving paths...
+              </p>
+            ) : mcpError ? (
+              <p className="text-xs text-forge-error py-1">{mcpError}</p>
+            ) : (
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={() => { void handleCopyPrompt(); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium text-white bg-forge-accent hover:bg-forge-accent-hover transition-colors"
+                  title="Copy a self-contained prompt to paste into Claude Code or another AI tool — it will configure itself automatically."
+                >
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="flex-shrink-0">
+                    <rect x="4" y="4" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.25"/>
+                    <path d="M9 4V2.5A1.5 1.5 0 0 0 7.5 1H2.5A1.5 1.5 0 0 0 1 2.5V7.5A1.5 1.5 0 0 0 2.5 9H4" stroke="currentColor" strokeWidth="1.25"/>
+                  </svg>
+                  {promptCopied ? "Copied!" : "Copy MCP Setup Prompt"}
+                </button>
+                <button
+                  onClick={() => { void handleCopyRawConfig(); }}
+                  className="px-3 py-1.5 rounded text-sm text-forge-text bg-forge-border/40 hover:bg-forge-border/60 transition-colors"
+                  title="Copy just the raw JSON config block to paste manually."
+                >
+                  {rawCopied ? "Copied!" : "Copy Raw Config"}
+                </button>
+              </div>
+            )}
+
+            {/* Path preview */}
+            {!mcpLoading && !mcpError && mcpConfig && (
+              <div className="rounded border border-forge-border/50 bg-forge-bg/50 px-4 py-3 space-y-1 mt-2">
+                <p className="text-xs text-forge-muted font-mono truncate" title={mcpConfig.python_executable}>
+                  <span className="text-forge-text not-italic font-sans font-medium">Python:</span>{" "}
+                  {mcpConfig.python_executable}
+                </p>
+                <p className="text-xs text-forge-muted font-mono truncate" title={mcpConfig.pipeline_dir}>
+                  <span className="text-forge-text not-italic font-sans font-medium">Pipelines:</span>{" "}
+                  {mcpConfig.pipeline_dir}
+                </p>
+                <p className="text-xs text-forge-muted font-mono truncate" title={mcpConfig.blocks_dir}>
+                  <span className="text-forge-text not-italic font-sans font-medium">Blocks:</span>{" "}
+                  {mcpConfig.blocks_dir}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Footer */}

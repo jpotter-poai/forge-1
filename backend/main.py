@@ -10,6 +10,7 @@ from backend.api.checkpoints import router as checkpoints_router
 from backend.api.custom_blocks import router as custom_blocks_router
 from backend.api.execution import router as execution_router
 from backend.api.files import router as files_router
+from backend.api.mcp_config import router as mcp_config_router
 from backend.api.pipelines import router as pipelines_router
 from backend.mcp_server import build_mcp_server
 from backend.services import build_services
@@ -42,6 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(blocks_router, prefix="/api")
     app.include_router(custom_blocks_router, prefix="/api")
+    app.include_router(mcp_config_router, prefix="/api")
     app.include_router(pipelines_router, prefix="/api")
     app.include_router(execution_router, prefix="/api")
     app.include_router(checkpoints_router, prefix="/api")

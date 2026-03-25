@@ -290,6 +290,25 @@ export async function exportCustomBlock(filename: string): Promise<void> {
   downloadBlob(response.data, dlFilename);
 }
 
+// ── MCP Config ───────────────────────────────────────────────────────────────
+
+export interface McpConfigResponse {
+  python_executable: string;
+  pythonpath: string;
+  blocks_dir: string;
+  pipeline_dir: string;
+  checkpoint_dir: string;
+  log_level: string;
+  config_json: Record<string, unknown>;
+  setup_prompt: string;
+  os_name: string;
+}
+
+export async function getMcpConfig(): Promise<McpConfigResponse> {
+  const { data } = await http.get<McpConfigResponse>("/mcp-config");
+  return data;
+}
+
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 
 export function openExecutionSocket(pipelineId: string): WebSocket {
