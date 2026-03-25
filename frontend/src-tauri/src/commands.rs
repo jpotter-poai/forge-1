@@ -80,7 +80,8 @@ pub async fn setup_and_start(
     .ok_or("Python 3.12+ not found. Please install Python from python.org.")?;
 
     // Step 2: Create venv if needed
-    if !python::venv_exists() {
+    let venv_is_new = !python::venv_exists();
+    if venv_is_new {
         {
             let mut status = state.status.lock().unwrap();
             *status = BackendStatus::CreatingVenv;
@@ -99,20 +100,30 @@ pub async fn setup_and_start(
     }
 
     // Step 3: Install/update Forge
-    {
-        let mut status = state.status.lock().unwrap();
-        *status = BackendStatus::InstallingDeps;
-    }
-    let _ = app.emit("backend-status", BackendStatus::InstallingDeps);
-    tokio::task::yield_now().await;
+    // Always install on a fresh venv; otherwise respect the auto_update_packages setting.
+    let auto_update = workspace::load_config()
+        .map(|c| c.auto_update_packages)
+        .unwrap_or(false);
 
     let forge_root = resolve_forge_root(&app)?;
-    let root_clone = forge_root.clone();
-    tokio::task::spawn_blocking(move || {
-        python::install_forge(&root_clone)
-    })
-    .await
-    .map_err(|e| format!("Task failed: {e}"))??;
+
+    if venv_is_new || auto_update {
+        {
+            let mut status = state.status.lock().unwrap();
+            *status = BackendStatus::InstallingDeps;
+        }
+        let _ = app.emit("backend-status", BackendStatus::InstallingDeps);
+        tokio::task::yield_now().await;
+
+        let root_clone = forge_root.clone();
+        tokio::task::spawn_blocking(move || {
+            python::install_forge(&root_clone)
+        })
+        .await
+        .map_err(|e| format!("Task failed: {e}"))??;
+    } else {
+        log::info!("[setup] Skipping package update (auto_update_packages is disabled)");
+    }
 
     // Ensure .env exists in the data dir (for production backend cwd)
     if let Some(config) = workspace::load_config() {
@@ -262,10 +273,12 @@ pub async fn initialize_workspace(
     // Write .env pointing at the workspace
     workspace::write_env_file(&forge_root, &workspace_dir)?;
 
-    // Save workspace config
+    // Save workspace config (preserve existing auto_update_packages setting if present)
+    let existing = workspace::load_config();
     let config = workspace::WorkspaceConfig {
         workspace_dir,
         setup_complete: true,
+        auto_update_packages: existing.map(|c| c.auto_update_packages).unwrap_or(false),
     };
     workspace::save_config(&config)?;
 
@@ -279,4 +292,17 @@ pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
         .map_err(|e| format!("Could not resolve log dir: {e}"))?;
     let log_file = log_dir.join("forge.log");
     Ok(log_file.to_string_lossy().to_string())
+}
+
+/// Manually trigger a package update (install/upgrade all Forge dependencies).
+/// This runs the same install_forge step as the auto-update path.
+#[tauri::command]
+pub async fn update_packages(app: tauri::AppHandle) -> Result<(), String> {
+    log::info!("[update_packages] Manual package update requested");
+    let forge_root = resolve_forge_root(&app)?;
+    tokio::task::spawn_blocking(move || {
+        python::install_forge(&forge_root)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }

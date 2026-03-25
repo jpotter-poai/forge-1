@@ -12,15 +12,18 @@ interface SettingsModalProps {
 interface WorkspaceConfig {
   workspace_dir: string;
   setup_complete: boolean;
+  auto_update_packages: boolean;
 }
 
 export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const isTauri = detectTauri();
   const [config, setConfig] = useState<WorkspaceConfig | null>(null);
   const [workspaceDir, setWorkspaceDir] = useState("");
+  const [autoUpdatePackages, setAutoUpdatePackages] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
 
   // Load settings when the modal opens
   useEffect(() => {
@@ -34,6 +37,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           .then((cfg) => {
             setConfig(cfg);
             setWorkspaceDir(cfg.workspace_dir);
+            setAutoUpdatePackages(cfg.auto_update_packages ?? false);
           })
           .catch(() => {
             setConfig(null);
@@ -88,6 +92,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         config: {
           workspace_dir: workspaceDir,
           setup_complete: true,
+          auto_update_packages: autoUpdatePackages,
         },
       });
       setSaveMsg("Settings saved");
@@ -105,12 +110,34 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     // Reset to original values
     if (config) {
       setWorkspaceDir(config.workspace_dir);
+      setAutoUpdatePackages(config.auto_update_packages ?? false);
     }
     setSaveMsg(null);
     onClose();
   };
 
-  const hasChanges = config ? workspaceDir !== config.workspace_dir : false;
+  const handleUpdatePackages = async () => {
+    if (!isTauri) return;
+    setUpdating(true);
+    setSaveMsg(null);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("update_packages");
+      setSaveMsg("Packages updated successfully");
+      setTimeout(() => setSaveMsg(null), 4000);
+    } catch (err) {
+      setSaveMsg(
+        "Update failed: " + (err instanceof Error ? err.message : String(err)),
+      );
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const hasChanges = config
+    ? workspaceDir !== config.workspace_dir ||
+      autoUpdatePackages !== (config.auto_update_packages ?? false)
+    : false;
 
   return (
     <div
@@ -194,6 +221,43 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   {workspaceDir ? `${workspaceDir}/outputs` : "---"}
                 </p>
               </div>
+
+              {/* Package Updates */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-forge-text">
+                  Package Updates
+                </label>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-forge-text">Auto-update on boot</p>
+                    <p className="text-xs text-forge-muted">
+                      When enabled, Forge updates all packages every time it starts.
+                      Disabled by default for faster startup.
+                    </p>
+                  </div>
+                  <button
+                    role="switch"
+                    aria-checked={autoUpdatePackages}
+                    onClick={() => setAutoUpdatePackages((v) => !v)}
+                    className={`ml-4 flex-shrink-0 w-8 h-4 rounded-full transition-colors flex items-center ${
+                      autoUpdatePackages ? "bg-forge-accent" : "bg-forge-border"
+                    }`}
+                  >
+                    <div
+                      className={`w-3 h-3 rounded-full bg-white transition-transform ${
+                        autoUpdatePackages ? "translate-x-4" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <button
+                  onClick={() => { void handleUpdatePackages(); }}
+                  disabled={updating}
+                  className="w-full px-3 py-2 rounded text-sm text-forge-text bg-forge-border/40 hover:bg-forge-border/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {updating ? "Updating packages..." : "Check for package updates"}
+                </button>
+              </div>
             </>
           )}
         </div>
@@ -205,12 +269,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               {saveMsg && (
                 <span
                   className={`text-xs animate-fade-in-up ${
-                    saveMsg.startsWith("Save failed")
+                    saveMsg.startsWith("Save failed") || saveMsg.startsWith("Update failed")
                       ? "text-forge-error"
                       : "text-forge-complete"
                   }`}
                 >
-                  {saveMsg.startsWith("Settings saved") ? "\u2713 " : ""}
+                  {(saveMsg.startsWith("Settings saved") || saveMsg.startsWith("Packages updated")) ? "\u2713 " : ""}
                   {saveMsg}
                 </span>
               )}
