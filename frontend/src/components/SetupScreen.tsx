@@ -62,8 +62,18 @@ function isFileLockError(error: string | null): boolean {
     error.includes("being used by another process") ||
     error.includes("WinError 32") ||
     error.includes("Permission denied") ||
-    error.includes("EBUSY")
+    error.includes("EBUSY") ||
+    error.includes("Resource busy")
   );
+}
+
+/** Rough OS detection for showing platform-appropriate help text. */
+function detectOS(): "windows" | "macos" | "other" {
+  if (typeof navigator === "undefined") return "other";
+  const p = navigator.platform.toLowerCase();
+  if (p.startsWith("win")) return "windows";
+  if (p.startsWith("mac") || p.includes("mac")) return "macos";
+  return "other";
 }
 
 export function SetupScreen({ stage, error, onRetry }: SetupScreenProps) {
@@ -142,13 +152,26 @@ export function SetupScreen({ stage, error, onRetry }: SetupScreenProps) {
               This usually happens when Python is already running.
             </p>
             <div className="bg-gray-800/50 rounded-lg p-4 text-left w-full">
-              <p className="text-xs text-gray-400 mb-2">
-                To fix this, close any running Python programs, then click
-                Retry. If you&apos;re not sure what&apos;s running, open Task
-                Manager (<span className="text-gray-300">Ctrl + Shift + Esc</span>),
-                look for <span className="text-gray-300">python.exe</span>,
-                and end those tasks.
-              </p>
+              {detectOS() === "macos" ? (
+                <p className="text-xs text-gray-400 mb-2">
+                  To fix this, close any running Python programs, then click
+                  Retry. If you&apos;re not sure what&apos;s running, open{" "}
+                  <span className="text-gray-300">Activity Monitor</span>{" "}
+                  (press <span className="text-gray-300">Cmd + Space</span> and
+                  search for &quot;Activity Monitor&quot;), look for{" "}
+                  <span className="text-gray-300">Python</span> or{" "}
+                  <span className="text-gray-300">python3</span>, and quit those
+                  processes.
+                </p>
+              ) : (
+                <p className="text-xs text-gray-400 mb-2">
+                  To fix this, close any running Python programs, then click
+                  Retry. If you&apos;re not sure what&apos;s running, open Task
+                  Manager (<span className="text-gray-300">Ctrl + Shift + Esc</span>),
+                  look for <span className="text-gray-300">python.exe</span>,
+                  and end those tasks.
+                </p>
+              )}
             </div>
             <button
               onClick={onRetry}

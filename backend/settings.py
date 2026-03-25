@@ -48,7 +48,11 @@ def _forge_data_dir() -> Path | None:
             return Path(local) / "Forge"
     elif sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "Forge"
-    return None
+    else:
+        # Linux / other Unix: follow XDG spec
+        xdg = os.environ.get("XDG_DATA_HOME")
+        base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+        return base / "Forge"
 
 
 def env_or_default(key: str, default: str) -> str:

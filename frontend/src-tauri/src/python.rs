@@ -15,7 +15,24 @@ fn silent_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
     cmd
 }
 
-#[cfg(not(target_os = "windows"))]
+/// On macOS, GUI apps launched from Finder inherit a minimal PATH that typically
+/// excludes Homebrew (/opt/homebrew/bin, /usr/local/bin) and other user-installed
+/// Python locations. Augment PATH so subprocesses can find Python.
+#[cfg(target_os = "macos")]
+fn silent_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    let mut cmd = Command::new(program);
+    let extra = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin";
+    let current = std::env::var("PATH").unwrap_or_default();
+    let new_path = if current.is_empty() {
+        extra.to_string()
+    } else {
+        format!("{extra}:{current}")
+    };
+    cmd.env("PATH", new_path);
+    cmd
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn silent_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
     Command::new(program)
 }
@@ -116,6 +133,31 @@ pub fn find_system_python() -> Option<String> {
             return Some(candidate.to_string());
         }
         info!("[find_python] ✗ {candidate} not suitable");
+    }
+
+    // On macOS, fall back to absolute path checks. PATH augmentation in
+    // silent_command should handle most cases, but this catches edge cases
+    // where the binary exists but isn't on the augmented PATH.
+    #[cfg(target_os = "macos")]
+    {
+        let macos_candidates = [
+            "/opt/homebrew/bin/python3.13",
+            "/opt/homebrew/bin/python3.12",
+            "/opt/homebrew/bin/python3",
+            "/usr/local/bin/python3.13",
+            "/usr/local/bin/python3.12",
+            "/usr/local/bin/python3",
+            "/usr/bin/python3",
+        ];
+        for candidate in &macos_candidates {
+            if std::path::Path::new(candidate).exists() {
+                info!("[find_python] Trying absolute path {candidate}...");
+                if check_python_suitability(candidate, &["-c"]) {
+                    info!("[find_python] ✓ Found macOS Python at {candidate}");
+                    return Some(candidate.to_string());
+                }
+            }
+        }
     }
 
     info!("[find_python] No suitable Python found");
@@ -332,7 +374,8 @@ pub fn install_forge(forge_root: &PathBuf) -> Result<(), String> {
     }
 
     // Copy source to a writable temp directory for pip install.
-    // Program Files is read-only, and pip needs to create egg-info/build artifacts.
+    // The bundled app directory may be read-only (e.g. /Applications on macOS,
+    // Program Files on Windows), and pip needs to create egg-info/build artifacts.
     let temp_dir = std::env::temp_dir().join("forge-install-src");
     if temp_dir.exists() {
         let _ = std::fs::remove_dir_all(&temp_dir);
