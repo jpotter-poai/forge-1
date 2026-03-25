@@ -29,6 +29,7 @@ import { usePipeline, type ForgeNodeData } from "./hooks/usePipeline";
 import type { BlockSpec } from "./types/pipeline";
 
 const HISTORY_LIMIT = 50;
+const GRID_SNAP_SIZE = 10;
 
 interface GraphSnapshot {
   nodes: Node<ForgeNodeData>[];
@@ -202,6 +203,9 @@ export default function App() {
   const [showTutorialHintToast, setShowTutorialHintToast] = useState(false);
   const tutorialHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevIsRunningRef = useRef(false);
+  const shiftHeldRef = useRef(false);
+  const [showGridSnapHint, setShowGridSnapHint] = useState(false);
+  const gridSnapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleStartTour = useCallback(() => {
     setShowWelcome(false);
@@ -263,6 +267,30 @@ export default function App() {
       if (tutorialHintTimerRef.current) {
         window.clearTimeout(tutorialHintTimerRef.current);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (gridSnapHintTimerRef.current) {
+        window.clearTimeout(gridSnapHintTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Track Shift key held state for grid snapping
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Shift") shiftHeldRef.current = true;
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Shift") shiftHeldRef.current = false;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
     };
   }, []);
 
@@ -402,7 +430,22 @@ export default function App() {
           setSelectedNodeId(null);
         }
       }
-      setNodes((ns) => applyNodeChanges(changes, ns));
+      // Snap to grid when Shift is held during drag
+      const processedChanges = shiftHeldRef.current
+        ? changes.map((change) => {
+            if (change.type === "position" && change.position) {
+              return {
+                ...change,
+                position: {
+                  x: Math.round(change.position.x / GRID_SNAP_SIZE) * GRID_SNAP_SIZE,
+                  y: Math.round(change.position.y / GRID_SNAP_SIZE) * GRID_SNAP_SIZE,
+                },
+              };
+            }
+            return change;
+          })
+        : changes;
+      setNodes((ns) => applyNodeChanges(processedChanges, ns));
     },
     [pushHistorySnapshot, selectedNodeId, setNodes, setSelectedNodeId],
   );
@@ -444,6 +487,17 @@ export default function App() {
       const id = addNode(spec, position);
       setSelectedNodeId(id);
       setDraggingSpec(null);
+      // Show grid snap hint on first block drop
+      try {
+        if (!localStorage.getItem("forge-grid-snap-hint-seen")) {
+          localStorage.setItem("forge-grid-snap-hint-seen", "1");
+          setShowGridSnapHint(true);
+          gridSnapHintTimerRef.current = window.setTimeout(() => {
+            setShowGridSnapHint(false);
+            gridSnapHintTimerRef.current = null;
+          }, 6000);
+        }
+      } catch { /* localStorage unavailable */ }
     },
     [addNode, pushHistorySnapshot, setSelectedNodeId],
   );
@@ -708,6 +762,15 @@ export default function App() {
         />
       )}
       {showTutorialHintToast && <TutorialHintToast />}
+      {showGridSnapHint && (
+        <GridSnapHintToast onDismiss={() => {
+          setShowGridSnapHint(false);
+          if (gridSnapHintTimerRef.current) {
+            window.clearTimeout(gridSnapHintTimerRef.current);
+            gridSnapHintTimerRef.current = null;
+          }
+        }} />
+      )}
       {showReplayTourToast && (
         <ReplayTourToast
           onConfirm={handleReplayTour}
@@ -859,6 +922,24 @@ function TutorialHintToast() {
         <span className="text-forge-text">Shift + ?</span> to bring the tutorial
         back.
       </p>
+    </div>
+  );
+}
+
+function GridSnapHintToast({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className="fixed bottom-5 right-5 z-40 flex items-center gap-3 max-w-[calc(100vw-2.5rem)] rounded-lg border border-forge-border bg-forge-surface/95 px-3 py-2 shadow-lg shadow-black/35 backdrop-blur-sm animate-fade-in">
+      <p className="text-xs text-forge-muted">
+        Tip: Hold <span className="text-forge-text font-medium">Shift</span>{" "}
+        while dragging to snap blocks to a {GRID_SNAP_SIZE}px grid.
+      </p>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        className="text-forge-muted/60 hover:text-forge-muted transition-colors text-xs shrink-0"
+      >
+        ✕
+      </button>
     </div>
   );
 }
