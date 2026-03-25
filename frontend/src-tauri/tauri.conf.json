@@ -48,7 +48,7 @@
     "windows": {
       "allowDowngrades": false
     },
-    "macos": {
+    "macOS": {
       "minimumSystemVersion": "11.0"
     }
   },
