@@ -221,6 +221,10 @@ class InstallResult:
     skipped_packages: list[str]
     errors: list[str]
     message: str
+    # Conflict detection — set when an existing file would be overwritten and
+    # no conflict_resolution was provided.
+    conflict: bool = False
+    suggested_filename: str | None = None
 
 
 # ── Manager ────────────────────────────────────────────────────────────────────
@@ -231,6 +235,15 @@ class CustomBlockManager:
 
     def ensure_dir(self) -> None:
         self.custom_blocks_dir.mkdir(parents=True, exist_ok=True)
+
+    def _suggest_filename(self, filename: str) -> str:
+        """Return the next free filename: foo_2.py, foo_3.py, …"""
+        stem = Path(filename).stem
+        suffix = Path(filename).suffix
+        i = 2
+        while (self.custom_blocks_dir / f"{stem}_{i}{suffix}").exists():
+            i += 1
+        return f"{stem}_{i}{suffix}"
 
     # ── List ──────────────────────────────────────────────────────────────────
 
@@ -253,10 +266,22 @@ class CustomBlockManager:
 
     # ── Install ───────────────────────────────────────────────────────────────
 
-    def install(self, filename: str, content: bytes) -> InstallResult:
+    def install(
+        self,
+        filename: str,
+        content: bytes,
+        conflict_resolution: str | None = None,
+    ) -> InstallResult:
         """
         Save a .py block file to the custom blocks directory, detect its
         dependencies, install missing ones via pip, and return the result.
+
+        conflict_resolution:
+          None      — If a file with this name already exists, return a
+                      conflict result instead of overwriting (safe default).
+          "overwrite" — Replace the existing file unconditionally.
+          "rename"  — Auto-rename the incoming file to the next free slot
+                      (e.g. foo_2.py) so both files are kept.
         """
         self.ensure_dir()
 
@@ -290,6 +315,29 @@ class CustomBlockManager:
         # Extract block display name from source (best-effort)
         block_name = _extract_block_name(source) or Path(filename).stem
 
+        # ── Conflict check ────────────────────────────────────────────────────
+        dest = self.custom_blocks_dir / filename
+        if dest.exists() and conflict_resolution is None:
+            # Caller must explicitly choose a resolution; return without writing.
+            return InstallResult(
+                success=False,
+                conflict=True,
+                block_name=block_name,
+                filename=filename,
+                suggested_filename=self._suggest_filename(filename),
+                installed_packages=[],
+                skipped_packages=[],
+                errors=[],
+                message=f"A file named '{filename}' is already installed.",
+            )
+        if conflict_resolution == "rename":
+            filename = self._suggest_filename(filename)
+            dest = self.custom_blocks_dir / filename
+        # "overwrite" or no pre-existing file → dest already set correctly above
+        elif not dest.exists():
+            pass  # dest is correct; no conflict
+        # else: conflict_resolution == "overwrite" → dest is the existing path, will overwrite
+
         # Determine requirements
         reqs = _extract_requirements(source)
         if not reqs:
@@ -317,8 +365,7 @@ class CustomBlockManager:
             except subprocess.CalledProcessError as exc:
                 errors.append(f"Failed to install {req!r}: {exc.stderr.strip()}")
 
-        # Write the file
-        dest = self.custom_blocks_dir / filename
+        # Write the file (dest and filename already resolved above)
         dest.write_bytes(content)
 
         success = len(errors) == 0

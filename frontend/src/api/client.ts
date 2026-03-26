@@ -240,6 +240,8 @@ export interface CustomBlockEntry {
 
 export interface InstallBlockResult {
   success: boolean;
+  conflict: boolean;
+  suggested_filename: string | null;
   block_name: string;
   filename: string;
   installed_packages: string[];
@@ -253,11 +255,16 @@ export async function listCustomBlocks(): Promise<CustomBlockEntry[]> {
   return data;
 }
 
-export async function installCustomBlock(file: File): Promise<InstallBlockResult> {
+export async function installCustomBlock(
+  file: File,
+  conflictResolution?: "overwrite" | "rename",
+): Promise<InstallBlockResult> {
   const formData = new FormData();
   formData.append("file", file);
+  // Do NOT set Content-Type manually — axios must set it automatically so it
+  // includes the multipart boundary; without the boundary FastAPI returns 422.
   const { data } = await http.post<InstallBlockResult>("/custom-blocks/install", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
+    params: conflictResolution ? { conflict_resolution: conflictResolution } : undefined,
   });
   return data;
 }
@@ -266,7 +273,7 @@ export async function deleteCustomBlock(filename: string): Promise<void> {
   await http.delete(`/custom-blocks/${encodeURIComponent(filename)}`);
 }
 
-export async function downloadBlockTemplate(name = "My Custom Block"): Promise<void> {
+export async function downloadBlockTemplate(name = "My Custom Block"): Promise<string> {
   const response = await http.get<Blob>("/custom-blocks/template", {
     params: { name },
     responseType: "blob",
@@ -276,6 +283,7 @@ export async function downloadBlockTemplate(name = "My Custom Block"): Promise<v
     "custom_block_template.py",
   );
   downloadBlob(response.data, filename);
+  return filename;
 }
 
 export async function exportCustomBlock(filename: string): Promise<void> {
