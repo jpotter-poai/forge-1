@@ -29,7 +29,7 @@ import { usePipeline, type ForgeNodeData } from "./hooks/usePipeline";
 import type { BlockSpec } from "./types/pipeline";
 
 const HISTORY_LIMIT = 50;
-const GRID_SNAP_SIZE = 10;
+const GRID_SNAP_SIZE = 50;
 
 interface GraphSnapshot {
   nodes: Node<ForgeNodeData>[];
