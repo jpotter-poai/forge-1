@@ -35,6 +35,7 @@ pub fn run() {
             commands::load_settings,
             commands::save_settings,
             commands::get_log_path,
+            commands::update_packages,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

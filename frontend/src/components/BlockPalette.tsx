@@ -35,7 +35,7 @@ const CATEGORY_ICON: Record<string, string> = {
   Dimensionality: "ℝ",
   Visualization: "📈",
   Special: "★",
-  Custom: "⚡",
+  Custom: "★",
 };
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -306,10 +306,10 @@ function PaletteBlock({
         "
         style={{ animationDelay: `${index * 30}ms` }}
       >
-        <div className="font-medium truncate flex items-center gap-1">
-          {spec.name}
+        <div className="font-medium flex items-center gap-1 min-w-0">
+          <span className="truncate">{spec.name}</span>
           {spec.is_custom && (
-            <span className="text-[9px] text-purple-400 font-normal ml-auto shrink-0" title="User-installed block">⚡</span>
+            <span className="text-[9px] text-purple-400 font-normal shrink-0 leading-none" title="User-installed block">★</span>
           )}
         </div>
         {spec.n_inputs === 0 && (
@@ -342,7 +342,7 @@ function PaletteBlock({
             <div className="mt-1.5 flex items-center gap-2 text-[10px] text-forge-muted/70">
               <span>v{spec.version}</span>
               {spec.n_inputs > 0 && <span>· {spec.n_inputs} input{spec.n_inputs > 1 ? "s" : ""}</span>}
-              {spec.is_custom && <span className="text-purple-400">· custom</span>}
+              {spec.is_custom && <span className="text-purple-400">★ custom</span>}
             </div>
           </div>,
           document.body,
@@ -407,7 +407,7 @@ function ContextMenuOverlay({
             className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-forge-bg/60 transition-colors text-xs"
           >
             <span aria-hidden="true">↓</span>
-            Export block (.py)
+            Export Block Source
           </button>
         )}
         {onDelete && (
