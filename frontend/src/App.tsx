@@ -187,28 +187,38 @@ export default function App() {
   );
 
   const handleDownloadTemplate = useCallback(() => {
-    void downloadBlockTemplate();
-  }, []);
+    downloadBlockTemplate()
+      .then((filename) => {
+        showExportToast("Template downloaded", `${filename} saved to your Downloads folder.`);
+      })
+      .catch((err: unknown) => {
+        console.error("Template download failed", err);
+      });
+  }, [showExportToast]);
 
-  const [exportToast, setExportToast] = useState<string | null>(null);
+  const [exportToast, setExportToast] = useState<{ title: string; description: string } | null>(null);
   const exportToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showExportToast = useCallback((title: string, description: string) => {
+    if (exportToastTimerRef.current) clearTimeout(exportToastTimerRef.current);
+    setExportToast({ title, description });
+    exportToastTimerRef.current = setTimeout(() => {
+      setExportToast(null);
+      exportToastTimerRef.current = null;
+    }, 4000);
+  }, []);
 
   const handleExportBlock = useCallback((spec: BlockSpec) => {
     if (!spec.custom_filename) return;
     const filename = spec.custom_filename;
     exportCustomBlock(filename)
       .then(() => {
-        if (exportToastTimerRef.current) clearTimeout(exportToastTimerRef.current);
-        setExportToast(filename);
-        exportToastTimerRef.current = setTimeout(() => {
-          setExportToast(null);
-          exportToastTimerRef.current = null;
-        }, 4000);
+        showExportToast("Block source exported", `${filename} saved to your Downloads folder.`);
       })
       .catch((err: unknown) => {
         console.error("Block export failed", err);
       });
-  }, []);
+  }, [showExportToast]);
 
   const handleDeleteBlock = useCallback(
     (spec: BlockSpec) => {
@@ -762,10 +772,11 @@ export default function App() {
         />
       )}
 
-      {/* Block export success toast */}
+      {/* Block export / template download toast */}
       {exportToast && (
         <ExportSuccessToast
-          filename={exportToast}
+          title={exportToast.title}
+          description={exportToast.description}
           onDismiss={() => {
             if (exportToastTimerRef.current) clearTimeout(exportToastTimerRef.current);
             setExportToast(null);
@@ -958,20 +969,20 @@ function BlockInstallModal({
 // ── Export success toast ───────────────────────────────────────────────────────
 
 function ExportSuccessToast({
-  filename,
+  title,
+  description,
   onDismiss,
 }: {
-  filename: string;
+  title: string;
+  description: string;
   onDismiss: () => void;
 }) {
   return (
     <div className="fixed bottom-5 right-5 z-50 max-w-[calc(100vw-2.5rem)] rounded-lg border border-forge-complete/40 bg-forge-surface/95 px-4 py-3 shadow-lg shadow-black/35 backdrop-blur-sm animate-fade-in flex items-start gap-3">
       <span className="text-forge-complete text-base leading-none mt-0.5">✓</span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-forge-text">Block source exported</p>
-        <p className="text-xs text-forge-muted mt-0.5 truncate">
-          <span className="font-mono">{filename}</span> saved to your Downloads folder.
-        </p>
+        <p className="text-sm font-medium text-forge-text">{title}</p>
+        <p className="text-xs text-forge-muted mt-0.5">{description}</p>
       </div>
       <button
         onClick={onDismiss}
