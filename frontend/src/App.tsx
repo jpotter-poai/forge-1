@@ -186,16 +186,6 @@ export default function App() {
     [runInstall],
   );
 
-  const handleDownloadTemplate = useCallback(() => {
-    downloadBlockTemplate()
-      .then((filename) => {
-        showExportToast("Template downloaded", `${filename} saved to your Downloads folder.`);
-      })
-      .catch((err: unknown) => {
-        console.error("Template download failed", err);
-      });
-  }, [showExportToast]);
-
   const [exportToast, setExportToast] = useState<{ title: string; description: string } | null>(null);
   const exportToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -208,6 +198,17 @@ export default function App() {
     }, 4000);
   }, []);
 
+  const handleDownloadTemplate = useCallback(() => {
+    downloadBlockTemplate()
+      .then((filename) => {
+        showExportToast("Template downloaded", `${filename} saved to your Downloads folder.`);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        showExportToast("Template download failed", msg);
+      });
+  }, [showExportToast]);
+
   const handleExportBlock = useCallback((spec: BlockSpec) => {
     if (!spec.custom_filename) return;
     const filename = spec.custom_filename;
@@ -216,7 +217,8 @@ export default function App() {
         showExportToast("Block source exported", `${filename} saved to your Downloads folder.`);
       })
       .catch((err: unknown) => {
-        console.error("Block export failed", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        showExportToast("Block export failed", msg);
       });
   }, [showExportToast]);
 
