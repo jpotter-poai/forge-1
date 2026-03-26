@@ -28,6 +28,8 @@ export interface BlockSpec {
   param_descriptions: Record<string, string>;
   required_params?: string[];
   param_examples?: Record<string, unknown>;
+  is_custom?: boolean;
+  custom_filename?: string | null;
 }
 
 // ── Pipeline definition ───────────────────────────────────────────────────────

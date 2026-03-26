@@ -229,6 +229,94 @@ export async function browseFiles(
   return data;
 }
 
+// ── Custom block plugins ──────────────────────────────────────────────────────
+
+export interface CustomBlockEntry {
+  filename: string;
+  stem: string;
+  path: string;
+  requirements: string[];
+}
+
+export interface InstallBlockResult {
+  success: boolean;
+  conflict: boolean;
+  suggested_filename: string | null;
+  block_name: string;
+  filename: string;
+  installed_packages: string[];
+  skipped_packages: string[];
+  errors: string[];
+  message: string;
+}
+
+export async function listCustomBlocks(): Promise<CustomBlockEntry[]> {
+  const { data } = await http.get<CustomBlockEntry[]>("/custom-blocks");
+  return data;
+}
+
+export async function installCustomBlock(
+  file: File,
+  conflictResolution?: "overwrite" | "rename",
+): Promise<InstallBlockResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  // Do NOT set Content-Type manually — axios must set it automatically so it
+  // includes the multipart boundary; without the boundary FastAPI returns 422.
+  const { data } = await http.post<InstallBlockResult>("/custom-blocks/install", formData, {
+    params: conflictResolution ? { conflict_resolution: conflictResolution } : undefined,
+  });
+  return data;
+}
+
+export async function deleteCustomBlock(filename: string): Promise<void> {
+  await http.delete(`/custom-blocks/${encodeURIComponent(filename)}`);
+}
+
+export async function downloadBlockTemplate(name = "My Custom Block"): Promise<string> {
+  const response = await http.get<Blob>("/custom-blocks/template", {
+    params: { name },
+    responseType: "blob",
+  });
+  const filename = filenameFromDisposition(
+    response.headers["content-disposition"],
+    "custom_block_template.py",
+  );
+  downloadBlob(response.data, filename);
+  return filename;
+}
+
+export async function exportCustomBlock(filename: string): Promise<void> {
+  const response = await http.get<Blob>(
+    `/custom-blocks/${encodeURIComponent(filename)}/export`,
+    { responseType: "blob" },
+  );
+  const dlFilename = filenameFromDisposition(
+    response.headers["content-disposition"],
+    filename,
+  );
+  downloadBlob(response.data, dlFilename);
+}
+
+// ── MCP Config ───────────────────────────────────────────────────────────────
+
+export interface McpConfigResponse {
+  python_executable: string;
+  pythonpath: string;
+  blocks_dir: string;
+  pipeline_dir: string;
+  checkpoint_dir: string;
+  log_level: string;
+  config_json: Record<string, unknown>;
+  setup_prompt: string;
+  os_name: string;
+}
+
+export async function getMcpConfig(): Promise<McpConfigResponse> {
+  const { data } = await http.get<McpConfigResponse>("/mcp-config");
+  return data;
+}
+
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 
 export function openExecutionSocket(pipelineId: string): WebSocket {

@@ -266,6 +266,12 @@ export function usePipeline() {
       .catch(() => console.error("Failed to load block registry"));
   }, []);
 
+  const reloadBlocks = useCallback(() => {
+    fetchBlocks()
+      .then(setBlocks)
+      .catch(() => console.error("Failed to reload block registry"));
+  }, []);
+
   // Backfill block metadata for already-mounted nodes after registry loads.
   useEffect(() => {
     if (blocks.length === 0) return;
@@ -873,6 +879,7 @@ export function usePipeline() {
     prettifyPipeline,
     loadPipeline,
     refreshStaleness,
+    reloadBlocks,
   };
 }
 

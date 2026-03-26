@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from backend.custom_blocks import CustomBlockManager
 from backend.document_service import DraftService
 from backend.engine.execution_manager import ExecutionManager
 from backend.engine.checkpoint_store import CheckpointStore
@@ -20,10 +21,18 @@ class AppServices:
     runner: PipelineRunner
     execution_manager: ExecutionManager
     document_service: DraftService
+    custom_block_manager: CustomBlockManager
 
 
 def build_services(settings: Settings) -> AppServices:
-    registry = BlockRegistry(blocks_dir=settings.blocks_dir, package_name="blocks")
+    custom_block_manager = CustomBlockManager(settings.custom_blocks_dir)
+    custom_block_manager.ensure_dir()
+
+    registry = BlockRegistry(
+        blocks_dir=settings.blocks_dir,
+        package_name="blocks",
+        custom_blocks_dir=settings.custom_blocks_dir,
+    )
     registry.discover(force_reload=True)
 
     checkpoint_store = CheckpointStore(settings.checkpoint_dir)
@@ -46,4 +55,5 @@ def build_services(settings: Settings) -> AppServices:
         runner=runner,
         execution_manager=execution_manager,
         document_service=document_service,
+        custom_block_manager=custom_block_manager,
     )

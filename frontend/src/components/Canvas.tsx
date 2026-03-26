@@ -38,6 +38,7 @@ interface CanvasProps {
   onSelectionChange: (selectedNodes: Node<ForgeNodeData>[]) => void;
   onDropBlock: (spec: BlockSpec, position: { x: number; y: number }) => void;
   onDropComment: (position: { x: number; y: number }) => void;
+  onDropBlockFile?: (file: File) => void;
   draggingSpec: BlockSpec | null;
   draggingComment: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -55,6 +56,7 @@ export function Canvas({
   onSelectionChange,
   onDropBlock,
   onDropComment,
+  onDropBlockFile,
   draggingSpec,
   draggingComment,
   onCanvasReady,
@@ -65,13 +67,25 @@ export function Canvas({
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
+    // Show a "copy" cursor for palette blocks; "link" for .py file installs
+    const hasFiles = e.dataTransfer.types.includes("Files");
+    e.dataTransfer.dropEffect = hasFiles ? "link" : "copy";
   }, []);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       if (!reactFlowWrapper.current) return;
+
+      // Handle .py file drops for block installation
+      if (e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        if (file.name.endsWith(".py") && onDropBlockFile) {
+          onDropBlockFile(file);
+          return;
+        }
+      }
+
       if (!draggingSpec && !draggingComment) return;
 
       const bounds = reactFlowWrapper.current.getBoundingClientRect();
@@ -93,7 +107,7 @@ export function Canvas({
         onDropBlock(draggingSpec, position);
       }
     },
-    [draggingSpec, draggingComment, onDropBlock, onDropComment],
+    [draggingSpec, draggingComment, onDropBlock, onDropComment, onDropBlockFile],
   );
 
   const centerViewport = useCallback((x: number, y: number) => {

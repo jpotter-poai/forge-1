@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   applyNodeChanges,
   applyEdgeChanges,
@@ -11,7 +11,14 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { exportPipelinePng, exportPipelinePdf } from "./utils/exportCanvas";
-import { downloadPipelineExport } from "./api/client";
+import {
+  downloadPipelineExport,
+  installCustomBlock,
+  deleteCustomBlock,
+  downloadBlockTemplate,
+  exportCustomBlock,
+  type InstallBlockResult,
+} from "./api/client";
 import { BlockPalette } from "./components/BlockPalette";
 import { Canvas } from "./components/Canvas";
 import { NodeInspector } from "./components/NodeInspector";
@@ -22,6 +29,7 @@ import { usePipeline, type ForgeNodeData } from "./hooks/usePipeline";
 import type { BlockSpec } from "./types/pipeline";
 
 const HISTORY_LIMIT = 50;
+const GRID_SNAP_SIZE = 50;
 
 interface GraphSnapshot {
   nodes: Node<ForgeNodeData>[];
@@ -56,21 +64,33 @@ function hasTextSelection(): boolean {
 }
 
 // ── Cross-tab clipboard via localStorage ────────────────────────────────────
-const FORGE_CLIPBOARD_KEY = "forge-clipboard-v1";
+const FORGE_CLIPBOARD_KEY = "forge-clipboard-v2";
 
-function writeClipboard(nodes: Node<ForgeNodeData>[]) {
+interface ClipboardEntry {
+  id: string;
+  nodes: Node<ForgeNodeData>[];
+}
+
+function generateClipboardId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function writeClipboard(nodes: Node<ForgeNodeData>[]): string {
+  const id = generateClipboardId();
   try {
-    localStorage.setItem(FORGE_CLIPBOARD_KEY, JSON.stringify(nodes));
+    const entry: ClipboardEntry = { id, nodes };
+    localStorage.setItem(FORGE_CLIPBOARD_KEY, JSON.stringify(entry));
   } catch {
     // localStorage full or unavailable — silent fail, in-memory clipboard still works
   }
+  return id;
 }
 
-function readClipboard(): Node<ForgeNodeData>[] | null {
+function readClipboard(): ClipboardEntry | null {
   try {
     const raw = localStorage.getItem(FORGE_CLIPBOARD_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as Node<ForgeNodeData>[];
+    return JSON.parse(raw) as ClipboardEntry;
   } catch {
     return null;
   }
@@ -103,7 +123,116 @@ export default function App() {
     savePipeline,
     prettifyPipeline,
     loadPipeline,
+    reloadBlocks,
   } = usePipeline();
+
+  // ── Custom block install flow ────────────────────────────────────────────────
+
+  const [installState, setInstallState] = useState<
+    | { phase: "idle" }
+    | { phase: "installing"; filename: string }
+    | { phase: "conflict"; file: File; existingFilename: string; suggestedFilename: string }
+    | { phase: "result"; result: InstallBlockResult }
+    | { phase: "error"; message: string }
+  >({ phase: "idle" });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const runInstall = useCallback(
+    async (file: File, conflictResolution?: "overwrite" | "rename") => {
+      setInstallState({ phase: "installing", filename: file.name });
+      try {
+        const result = await installCustomBlock(file, conflictResolution);
+        if (result.conflict) {
+          // Pause and ask the user how to resolve the conflict
+          setInstallState({
+            phase: "conflict",
+            file,
+            existingFilename: result.filename,
+            suggestedFilename: result.suggested_filename ?? `${result.filename.replace(/\.py$/, "")}_2.py`,
+          });
+          return;
+        }
+        setInstallState({ phase: "result", result });
+        if (result.success) {
+          reloadBlocks();
+        }
+      } catch (err: unknown) {
+        setInstallState({
+          phase: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [reloadBlocks],
+  );
+
+  const handleDropBlockFile = useCallback(
+    (file: File) => {
+      void runInstall(file);
+    },
+    [runInstall],
+  );
+
+  const handleInstallBlockFromFile = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) void runInstall(file);
+      e.target.value = "";
+    },
+    [runInstall],
+  );
+
+  const [exportToast, setExportToast] = useState<{ title: string; description: string } | null>(null);
+  const exportToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showExportToast = useCallback((title: string, description: string) => {
+    if (exportToastTimerRef.current) clearTimeout(exportToastTimerRef.current);
+    setExportToast({ title, description });
+    exportToastTimerRef.current = setTimeout(() => {
+      setExportToast(null);
+      exportToastTimerRef.current = null;
+    }, 4000);
+  }, []);
+
+  const handleDownloadTemplate = useCallback(() => {
+    downloadBlockTemplate()
+      .then((filename) => {
+        showExportToast("Template downloaded", `${filename} saved to your Downloads folder.`);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        showExportToast("Template download failed", msg);
+      });
+  }, [showExportToast]);
+
+  const handleExportBlock = useCallback((spec: BlockSpec) => {
+    if (!spec.custom_filename) return;
+    const filename = spec.custom_filename;
+    exportCustomBlock(filename)
+      .then(() => {
+        showExportToast("Block source exported", `${filename} saved to your Downloads folder.`);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        showExportToast("Block export failed", msg);
+      });
+  }, [showExportToast]);
+
+  const handleDeleteBlock = useCallback(
+    (spec: BlockSpec) => {
+      if (!spec.custom_filename) return;
+      if (!confirm(`Uninstall "${spec.name}"? This cannot be undone.`)) return;
+      void deleteCustomBlock(spec.custom_filename).then(() => {
+        reloadBlocks();
+      });
+    },
+    [reloadBlocks],
+  );
 
   // ── Onboarding ──────────────────────────────────────────────────────────────
 
@@ -122,6 +251,9 @@ export default function App() {
   const [showTutorialHintToast, setShowTutorialHintToast] = useState(false);
   const tutorialHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevIsRunningRef = useRef(false);
+  const shiftHeldRef = useRef(false);
+  const [showGridSnapHint, setShowGridSnapHint] = useState(false);
+  const gridSnapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleStartTour = useCallback(() => {
     setShowWelcome(false);
@@ -183,6 +315,30 @@ export default function App() {
       if (tutorialHintTimerRef.current) {
         window.clearTimeout(tutorialHintTimerRef.current);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (gridSnapHintTimerRef.current) {
+        window.clearTimeout(gridSnapHintTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Track Shift key held state for grid snapping
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Shift") shiftHeldRef.current = true;
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Shift") shiftHeldRef.current = false;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
     };
   }, []);
 
@@ -271,6 +427,10 @@ export default function App() {
   const lastHistorySignatureRef = useRef<string | null>(null);
   const isApplyingUndoRef = useRef(false);
   const clipboardRef = useRef<Node<ForgeNodeData>[]>([]);
+  // Tracks the clipboard id that THIS instance last wrote to localStorage.
+  // If the stored id differs on paste, another instance wrote it and we must
+  // read from localStorage instead of the stale in-memory ref.
+  const lastWrittenIdRef = useRef<string | null>(null);
   const pasteDepthRef = useRef(0);
 
   const clearHistory = useCallback(() => {
@@ -322,7 +482,22 @@ export default function App() {
           setSelectedNodeId(null);
         }
       }
-      setNodes((ns) => applyNodeChanges(changes, ns));
+      // Snap to grid when Shift is held during drag
+      const processedChanges = shiftHeldRef.current
+        ? changes.map((change) => {
+            if (change.type === "position" && change.position) {
+              return {
+                ...change,
+                position: {
+                  x: Math.round(change.position.x / GRID_SNAP_SIZE) * GRID_SNAP_SIZE,
+                  y: Math.round(change.position.y / GRID_SNAP_SIZE) * GRID_SNAP_SIZE,
+                },
+              };
+            }
+            return change;
+          })
+        : changes;
+      setNodes((ns) => applyNodeChanges(processedChanges, ns));
     },
     [pushHistorySnapshot, selectedNodeId, setNodes, setSelectedNodeId],
   );
@@ -364,6 +539,17 @@ export default function App() {
       const id = addNode(spec, position);
       setSelectedNodeId(id);
       setDraggingSpec(null);
+      // Show grid snap hint on first block drop
+      try {
+        if (!localStorage.getItem("forge-grid-snap-hint-seen")) {
+          localStorage.setItem("forge-grid-snap-hint-seen", "1");
+          setShowGridSnapHint(true);
+          gridSnapHintTimerRef.current = window.setTimeout(() => {
+            setShowGridSnapHint(false);
+            gridSnapHintTimerRef.current = null;
+          }, 6000);
+        }
+      } catch { /* localStorage unavailable */ }
     },
     [addNode, pushHistorySnapshot, setSelectedNodeId],
   );
@@ -425,21 +611,28 @@ export default function App() {
         const cloned = cloneValue(toCopy);
         clipboardRef.current = cloned;
         pasteDepthRef.current = 0;
-        // Write to cross-tab clipboard
-        writeClipboard(cloned);
+        // Write to cross-tab clipboard and record the id so paste knows
+        // whether a *different* instance has written since our last copy.
+        lastWrittenIdRef.current = writeClipboard(cloned);
         return;
       }
 
       if (key === "v" && !event.shiftKey) {
-        // Try in-memory clipboard first, fall back to cross-tab
-        let source = clipboardRef.current;
-        if (source.length === 0) {
-          const crossTab = readClipboard();
-          if (crossTab && crossTab.length > 0) {
-            source = crossTab;
-            clipboardRef.current = source;
-          }
+        // Always check localStorage first. If the stored id differs from the
+        // id this instance last wrote, another instance copied more recently
+        // and we must use that data instead of the stale in-memory ref.
+        const crossTab = readClipboard();
+        if (crossTab && crossTab.id !== lastWrittenIdRef.current) {
+          // A different instance (or a newer copy from any instance) owns the
+          // clipboard — use it and update our in-memory ref.
+          clipboardRef.current = crossTab.nodes;
+          lastWrittenIdRef.current = crossTab.id;
+        } else if (crossTab && clipboardRef.current.length === 0) {
+          // Same instance wrote it but in-memory is empty (e.g. fresh window
+          // that hasn't copied yet — load from storage as a fallback).
+          clipboardRef.current = crossTab.nodes;
         }
+        let source = clipboardRef.current;
         if (source.length === 0) return;
         event.preventDefault();
         pushHistorySnapshot();
@@ -527,6 +720,15 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-forge-bg text-forge-text overflow-hidden">
+      {/* Hidden file input for "Install Block from File…" */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".py"
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+
       <Toolbar
         pipelineName={pipelineName}
         pipelineId={pipelineId}
@@ -550,6 +752,8 @@ export default function App() {
         onExportNotebook={() => {
           void handleExportBundle("notebook");
         }}
+        onDownloadTemplate={handleDownloadTemplate}
+        onInstallBlock={handleInstallBlockFromFile}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -563,6 +767,8 @@ export default function App() {
             setDraggingComment(true);
             setDraggingSpec(null);
           }}
+          onExportBlock={handleExportBlock}
+          onDeleteBlock={handleDeleteBlock}
         />
 
         <Canvas
@@ -581,6 +787,7 @@ export default function App() {
           }}
           onDropBlock={handleDropBlock}
           onDropComment={handleDropComment}
+          onDropBlockFile={handleDropBlockFile}
           draggingSpec={draggingSpec}
           draggingComment={draggingComment}
           onCanvasReady={(instance, wrapper) => {
@@ -614,10 +821,40 @@ export default function App() {
         />
       )}
       {showTutorialHintToast && <TutorialHintToast />}
+      {showGridSnapHint && (
+        <GridSnapHintToast onDismiss={() => {
+          setShowGridSnapHint(false);
+          if (gridSnapHintTimerRef.current) {
+            window.clearTimeout(gridSnapHintTimerRef.current);
+            gridSnapHintTimerRef.current = null;
+          }
+        }} />
+      )}
       {showReplayTourToast && (
         <ReplayTourToast
           onConfirm={handleReplayTour}
           onDismiss={() => setShowReplayTourToast(false)}
+        />
+      )}
+
+      {/* Block export / template download toast */}
+      {exportToast && (
+        <ExportSuccessToast
+          title={exportToast.title}
+          description={exportToast.description}
+          onDismiss={() => {
+            if (exportToastTimerRef.current) clearTimeout(exportToastTimerRef.current);
+            setExportToast(null);
+          }}
+        />
+      )}
+
+      {/* Block install progress / result modal */}
+      {installState.phase !== "idle" && (
+        <BlockInstallModal
+          state={installState}
+          onClose={() => setInstallState({ phase: "idle" })}
+          onResolveConflict={(file, resolution) => void runInstall(file, resolution)}
         />
       )}
     </div>
@@ -654,6 +891,175 @@ function ReplayTourToast({
   );
 }
 
+// ── Block install modal ────────────────────────────────────────────────────────
+
+function BlockInstallModal({
+  state,
+  onClose,
+  onResolveConflict,
+}: {
+  state:
+    | { phase: "installing"; filename: string }
+    | { phase: "conflict"; file: File; existingFilename: string; suggestedFilename: string }
+    | { phase: "result"; result: InstallBlockResult }
+    | { phase: "error"; message: string };
+  onClose: () => void;
+  onResolveConflict: (file: File, resolution: "overwrite" | "rename") => void;
+}) {
+  const isBlocking = state.phase === "installing";
+
+  const title =
+    state.phase === "installing" ? "Installing Block…" :
+    state.phase === "conflict"   ? "File Already Installed" :
+    state.phase === "result"     ? (state.result.success ? "Block Installed" : "Install Failed") :
+    "Install Error";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isBlocking) onClose();
+      }}
+    >
+      <div className="w-full max-w-sm bg-forge-surface border border-forge-border rounded-lg shadow-2xl overflow-hidden animate-fade-in-scale">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-forge-border">
+          <h2 className="text-forge-text font-semibold text-sm">{title}</h2>
+          {!isBlocking && (
+            <button onClick={onClose} aria-label="Close" className="text-forge-muted hover:text-forge-text transition-colors">
+              ✕
+            </button>
+          )}
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4 space-y-3">
+          {state.phase === "installing" && (
+            <div className="flex items-center gap-3">
+              <span className="inline-block w-3 h-3 rounded-full bg-forge-accent animate-pulse" />
+              <p className="text-forge-text text-sm">
+                Installing <span className="font-mono text-xs text-forge-muted">{state.filename}</span>…
+              </p>
+            </div>
+          )}
+
+          {state.phase === "conflict" && (
+            <>
+              <p className="text-sm text-forge-text">
+                A file named{" "}
+                <span className="font-mono text-xs bg-forge-bg px-1.5 py-0.5 rounded border border-forge-border">
+                  {state.existingFilename}
+                </span>{" "}
+                is already installed. What would you like to do?
+              </p>
+              <div className="text-xs text-forge-muted bg-forge-bg rounded border border-forge-border p-3 space-y-1">
+                <p><span className="text-forge-text font-medium">Overwrite</span> — replace the existing file. Any blocks it defined will be replaced by the new ones.</p>
+                <p><span className="text-forge-text font-medium">Keep Both</span> — install the new file as <span className="font-mono">{state.suggestedFilename}</span>.</p>
+              </div>
+            </>
+          )}
+
+          {state.phase === "result" && (
+            <>
+              <p className={`text-sm font-medium ${state.result.success ? "text-forge-complete" : "text-forge-error"}`}>
+                {state.result.success ? "✓ " : "⚠ "}{state.result.message}
+              </p>
+              {state.result.installed_packages.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-forge-muted mb-1">Packages installed:</p>
+                  <ul className="space-y-0.5">
+                    {state.result.installed_packages.map((pkg) => (
+                      <li key={pkg} className="text-xs font-mono text-forge-complete bg-forge-complete/10 px-2 py-0.5 rounded">
+                        {pkg}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {state.result.errors.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-forge-muted mb-1">Errors:</p>
+                  <ul className="space-y-0.5">
+                    {state.result.errors.map((err, i) => (
+                      <li key={i} className="text-xs text-forge-error">{err}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {state.result.success && (
+                <p className="text-xs text-forge-muted">
+                  The block is now available in the palette under <span className="text-forge-text font-medium">Plugins</span>.
+                </p>
+              )}
+            </>
+          )}
+
+          {state.phase === "error" && (
+            <p className="text-sm text-forge-error">{state.message}</p>
+          )}
+        </div>
+
+        {/* Footer */}
+        {state.phase === "conflict" ? (
+          <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-forge-border">
+            <button onClick={onClose} className="btn-ghost">
+              Cancel
+            </button>
+            <button
+              onClick={() => onResolveConflict(state.file, "rename")}
+              className="px-3 py-1.5 rounded bg-forge-accent hover:bg-forge-accent-hover text-white text-sm font-medium transition-colors"
+            >
+              Keep Both
+            </button>
+            <button
+              onClick={() => onResolveConflict(state.file, "overwrite")}
+              className="px-3 py-1.5 rounded bg-forge-error hover:bg-forge-error/90 text-white text-sm font-medium transition-colors"
+            >
+              Overwrite
+            </button>
+          </div>
+        ) : !isBlocking ? (
+          <div className="flex justify-end px-5 py-3 border-t border-forge-border">
+            <button onClick={onClose} className="btn-ghost">
+              Close
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ── Export success toast ───────────────────────────────────────────────────────
+
+function ExportSuccessToast({
+  title,
+  description,
+  onDismiss,
+}: {
+  title: string;
+  description: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="fixed bottom-5 right-5 z-50 max-w-[calc(100vw-2.5rem)] rounded-lg border border-forge-complete/40 bg-forge-surface/95 px-4 py-3 shadow-lg shadow-black/35 backdrop-blur-sm animate-fade-in flex items-start gap-3">
+      <span className="text-forge-complete text-base leading-none mt-0.5">✓</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-forge-text">{title}</p>
+        <p className="text-xs text-forge-muted mt-0.5">{description}</p>
+      </div>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        className="text-forge-muted hover:text-forge-text transition-colors text-[11px] leading-none shrink-0"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 function TutorialHintToast() {
   return (
     <div className="fixed bottom-5 left-5 z-40 max-w-[calc(100vw-2.5rem)] rounded-lg border border-forge-border bg-forge-surface/95 px-3 py-2 shadow-lg shadow-black/35 backdrop-blur-sm animate-fade-in">
@@ -662,6 +1068,24 @@ function TutorialHintToast() {
         <span className="text-forge-text">Shift + ?</span> to bring the tutorial
         back.
       </p>
+    </div>
+  );
+}
+
+function GridSnapHintToast({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className="fixed bottom-5 right-5 z-40 flex items-center gap-3 max-w-[calc(100vw-2.5rem)] rounded-lg border border-forge-border bg-forge-surface/95 px-3 py-2 shadow-lg shadow-black/35 backdrop-blur-sm animate-fade-in">
+      <p className="text-xs text-forge-muted">
+        Tip: Hold <span className="text-forge-text font-medium">Shift</span>{" "}
+        while dragging to snap blocks to a {GRID_SNAP_SIZE}px grid.
+      </p>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        className="text-forge-muted/60 hover:text-forge-muted transition-colors text-xs shrink-0"
+      >
+        ✕
+      </button>
     </div>
   );
 }
