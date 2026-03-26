@@ -1,9 +1,8 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [created]
 
 jobs:
   build:
@@ -41,13 +40,10 @@ jobs:
         with:
           workspaces: frontend/src-tauri
 
-      - name: Build and publish release artifacts
+      - name: Build and upload artifacts
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: frontend
-          tagName: ${{ github.ref_name }}
-          releaseName: Forge ${{ github.ref_name }}
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ github.event.release.id }}
