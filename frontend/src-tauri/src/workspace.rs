@@ -11,6 +11,9 @@ pub struct WorkspaceConfig {
     pub workspace_dir: String,
     /// Whether first-time setup has been completed
     pub setup_complete: bool,
+    /// Whether to automatically update packages on every boot (default: false)
+    #[serde(default)]
+    pub auto_update_packages: bool,
 }
 
 /// Returns the path to the workspace config file.

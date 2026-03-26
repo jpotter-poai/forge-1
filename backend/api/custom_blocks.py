@@ -20,16 +20,24 @@ def list_custom_blocks(services: AppServices = Depends(get_services)) -> list[di
 @router.post("/install")
 async def install_custom_block(
     file: UploadFile,
+    conflict_resolution: str | None = None,
     services: AppServices = Depends(get_services),
 ) -> dict:
     """
     Upload a .py file, install any declared pip requirements, copy to the
     custom blocks directory, and hot-reload the block registry.
+
+    conflict_resolution query param:
+      (omitted)   — return a conflict result if the filename already exists
+      "overwrite" — replace the existing file
+      "rename"    — keep both by auto-renaming the incoming file
     """
     filename = file.filename or "custom_block.py"
     content = await file.read()
 
-    result = services.custom_block_manager.install(filename, content)
+    result = services.custom_block_manager.install(
+        filename, content, conflict_resolution=conflict_resolution
+    )
 
     if result.success:
         # Hot-reload registry so the new block appears immediately
@@ -37,6 +45,8 @@ async def install_custom_block(
 
     return {
         "success": result.success,
+        "conflict": result.conflict,
+        "suggested_filename": result.suggested_filename,
         "block_name": result.block_name,
         "filename": result.filename,
         "installed_packages": result.installed_packages,
