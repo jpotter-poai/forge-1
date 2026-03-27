@@ -18,11 +18,12 @@ import type {
  * available when this module is first evaluated.
  */
 let _baseURL = "/api";
+const TAURI_BACKEND_HOST = "127.0.0.1";
 
 const http = axios.create({ baseURL: _baseURL });
 
 export function setApiBaseUrl(port: number) {
-  _baseURL = `http://localhost:${port}/api`;
+  _baseURL = `http://${TAURI_BACKEND_HOST}:${port}/api`;
   http.defaults.baseURL = _baseURL;
 }
 
@@ -322,7 +323,9 @@ export async function getMcpConfig(): Promise<McpConfigResponse> {
 export function openExecutionSocket(pipelineId: string): WebSocket {
   if (_baseURL.startsWith("http")) {
     const port = _baseURL.match(/:(\d+)/)?.[1] ?? "40964";
-    return new WebSocket(`ws://localhost:${port}/api/ws/execute/${pipelineId}`);
+    return new WebSocket(
+      `ws://${TAURI_BACKEND_HOST}:${port}/api/ws/execute/${pipelineId}`,
+    );
   }
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   const host = window.location.host;
