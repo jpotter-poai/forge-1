@@ -90,7 +90,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        default_cors = "http://tauri.localhost,https://tauri.localhost,http://localhost:1420"
+        default_cors = "http://tauri.localhost,https://tauri.localhost,tauri://localhost,http://localhost:1420"
         cors_raw = env_or_default("CORS_ORIGINS", default_cors)
         cors = [item.strip() for item in cors_raw.split(",") if item.strip()]
         return cls(

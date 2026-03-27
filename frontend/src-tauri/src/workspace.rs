@@ -113,7 +113,7 @@ pub fn write_env_file(forge_root: &PathBuf, workspace_dir: &str) -> Result<(), S
          BLOCKS_DIR=./blocks\n\
          DEFAULT_FILE_PATH={datasets}\n\
          LOG_LEVEL=INFO\n\
-         CORS_ORIGINS=http://tauri.localhost,https://tauri.localhost,http://localhost:1420\n",
+         CORS_ORIGINS=http://tauri.localhost,https://tauri.localhost,tauri://localhost,http://localhost:1420\n",
         checkpoints = workspace.join("checkpoints").to_string_lossy(),
         pipelines = workspace.join("pipelines").to_string_lossy(),
         datasets = workspace.join("datasets").to_string_lossy(),
