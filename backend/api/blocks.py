@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends
 
 from backend.api.deps import get_services
 from backend.services import AppServices
 
 router = APIRouter(prefix="/blocks", tags=["blocks"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
 def list_blocks(services: AppServices = Depends(get_services)) -> list[dict]:
-    return [
+    blocks = [
         {
             "key": spec.key,
             "name": spec.display_name,
@@ -43,6 +46,8 @@ def list_blocks(services: AppServices = Depends(get_services)) -> list[dict]:
         }
         for spec in services.registry.all_specs()
     ]
+    logger.info("[api.blocks] Returning %s blocks", len(blocks))
+    return blocks
 
 
 

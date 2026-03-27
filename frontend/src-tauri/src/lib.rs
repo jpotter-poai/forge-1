@@ -28,6 +28,7 @@ pub fn run() {
             commands::check_python,
             commands::check_venv,
             commands::reset_setup,
+            commands::open_devtools,
             commands::setup_and_start,
             commands::check_workspace_setup,
             commands::get_default_workspace,
