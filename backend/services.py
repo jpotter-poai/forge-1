@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import logging
 
 from backend.custom_blocks import CustomBlockManager
 from backend.document_service import DraftService
@@ -11,8 +10,6 @@ from backend.engine.runner import PipelineRunner
 from backend.pipeline_store import PipelineStore
 from backend.registry import BlockRegistry
 from backend.settings import Settings
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -28,13 +25,6 @@ class AppServices:
 
 
 def build_services(settings: Settings) -> AppServices:
-    logger.info(
-        "[services] Building app services with blocks_dir=%s custom_blocks_dir=%s pipeline_dir=%s checkpoint_dir=%s",
-        settings.blocks_dir,
-        settings.custom_blocks_dir,
-        settings.pipeline_dir,
-        settings.checkpoint_dir,
-    )
     custom_block_manager = CustomBlockManager(settings.custom_blocks_dir)
     custom_block_manager.ensure_dir()
 
@@ -44,16 +34,6 @@ def build_services(settings: Settings) -> AppServices:
         custom_blocks_dir=settings.custom_blocks_dir,
     )
     registry.discover(force_reload=True)
-    specs = registry.all_specs()
-    logger.info(
-        "[services] Block registry discovered %s blocks (%s custom)",
-        len(specs),
-        sum(1 for spec in specs if spec.is_custom),
-    )
-    logger.info(
-        "[services] First block keys: %s",
-        ", ".join(spec.key for spec in specs[:10]) or "<none>",
-    )
 
     checkpoint_store = CheckpointStore(settings.checkpoint_dir)
     pipeline_store = PipelineStore(settings.pipeline_dir)

@@ -134,6 +134,9 @@ export function BlockPalette({
             aria-label="Search blocks"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="Search blocks…"
             className="
               w-full pl-5 pr-6 py-1 rounded-md

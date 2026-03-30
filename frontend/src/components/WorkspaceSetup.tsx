@@ -91,6 +91,9 @@ export function WorkspaceSetup({ onComplete }: WorkspaceSetupProps) {
             type="text"
             value={workspaceDir}
             onChange={(e) => setWorkspaceDir(e.target.value)}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm
                        focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50
                        placeholder-gray-500"

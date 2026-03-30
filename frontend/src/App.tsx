@@ -719,7 +719,7 @@ export default function App() {
   );
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-forge-bg text-forge-text overflow-hidden">
+    <div className="h-full w-full min-h-[100dvh] flex flex-col bg-forge-bg text-forge-text overflow-hidden">
       {/* Hidden file input for "Install Block from File…" */}
       <input
         ref={fileInputRef}

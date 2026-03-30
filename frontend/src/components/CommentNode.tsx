@@ -93,6 +93,9 @@ export const CommentNode = memo(function CommentNode({
             value={title}
             onChange={(e) => updateField("title", e.target.value)}
             onMouseDown={(e) => e.stopPropagation()}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="Comment Title"
             className="
               nodrag nopan
@@ -114,6 +117,9 @@ export const CommentNode = memo(function CommentNode({
             value={description}
             onChange={(e) => updateField("description", e.target.value)}
             onMouseDown={(e) => e.stopPropagation()}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="Add a description…"
             className="
               nodrag nopan

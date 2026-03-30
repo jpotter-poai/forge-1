@@ -438,6 +438,9 @@ function ParamField({
           className={`${inputClass} ${fileBrowserMode ? "flex-1 min-w-0" : ""}`}
           value={value == null ? "" : String(value)}
           placeholder={placeholder || (value == null ? "(null)" : undefined)}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           onChange={(e) => {
             const v = e.target.value === "" ? null : e.target.value;
             onChange(paramKey, v);
@@ -537,6 +540,9 @@ function ListParamInput({
       className={inputClass}
       value={draft}
       placeholder={placeholder}
+      autoCapitalize="off"
+      autoCorrect="off"
+      spellCheck={false}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {

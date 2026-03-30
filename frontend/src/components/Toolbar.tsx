@@ -117,6 +117,9 @@ export function Toolbar({
           size={Math.max(pipelineName.length, 1)}
           onChange={(e) => onNameChange(e.target.value)}
           aria-label="Pipeline name"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
         />
 
         {pipelineId && (

@@ -263,13 +263,13 @@ export function usePipeline() {
   useEffect(() => {
     fetchBlocks()
       .then(setBlocks)
-      .catch((error) => console.error("Failed to load block registry", error));
+      .catch(() => console.error("Failed to load block registry"));
   }, []);
 
   const reloadBlocks = useCallback(() => {
     fetchBlocks()
       .then(setBlocks)
-      .catch((error) => console.error("Failed to reload block registry", error));
+      .catch(() => console.error("Failed to reload block registry"));
   }, []);
 
   // Backfill block metadata for already-mounted nodes after registry loads.

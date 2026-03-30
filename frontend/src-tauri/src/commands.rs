@@ -32,16 +32,6 @@ pub fn reset_setup(state: State<BackendState>) {
     log::info!("[setup] Status reset to NotStarted for retry");
 }
 
-#[tauri::command]
-pub fn open_devtools(app: tauri::AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    window.open_devtools();
-    log::info!("[devtools] Opened web inspector for main window");
-    Ok(())
-}
-
 /// Run the full first-time setup: create venv, install deps, start server.
 /// Emits status events so the frontend can show progress.
 /// All blocking operations run on a background thread so the UI stays responsive.
@@ -215,42 +205,15 @@ async fn wait_for_backend(port: u16) -> Result<(), String> {
     let client = reqwest::Client::new();
     let start = std::time::Instant::now();
     let timeout = std::time::Duration::from_secs(30);
-    let mut attempts: u32 = 0;
-    let mut last_error = String::new();
 
     loop {
-        attempts += 1;
         if start.elapsed() > timeout {
-            let suffix = if last_error.is_empty() {
-                String::new()
-            } else {
-                format!(" Last error: {last_error}")
-            };
-            return Err(format!(
-                "Backend did not start within 30 seconds after {attempts} checks.{suffix}"
-            ));
+            return Err("Backend did not start within 30 seconds".to_string());
         }
 
         match client.get(&url).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                log::info!(
-                    "[setup] Backend ready after {attempts} checks at {url} (status {})",
-                    resp.status()
-                );
-                return Ok(());
-            }
-            Ok(resp) => {
-                last_error = format!("non-success status {}", resp.status());
-                if attempts == 1 || attempts % 8 == 0 {
-                    log::info!("[setup] Waiting for backend at {url}: {}", resp.status());
-                }
-            }
-            Err(err) => {
-                last_error = err.to_string();
-                if attempts == 1 || attempts % 8 == 0 {
-                    log::info!("[setup] Waiting for backend at {url}: {err}");
-                }
-            }
+            Ok(resp) if resp.status().is_success() => return Ok(()),
+            _ => {}
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;

@@ -237,6 +237,9 @@ export function FileBrowser({
                   type="text"
                   value={filenameDraft}
                   onChange={(e) => setFilenameDraft(e.target.value)}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   placeholder="result.csv"
                   className="w-full bg-forge-bg border border-forge-border rounded px-2 py-1.5 text-forge-text text-xs focus:outline-none focus:border-forge-accent transition-colors"
                 />

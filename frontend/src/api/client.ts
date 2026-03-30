@@ -1,5 +1,4 @@
 import axios from "axios";
-import type { AxiosError, AxiosRequestConfig } from "axios";
 import type {
   BlockSpec,
   CancelExecutionResponse,
@@ -23,31 +22,6 @@ const TAURI_BACKEND_HOST = "127.0.0.1";
 
 const http = axios.create({ baseURL: _baseURL });
 
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
-function resolveRequestUrl(config: AxiosRequestConfig): string {
-  const base = config.baseURL ?? http.defaults.baseURL ?? "";
-  const url = config.url ?? "";
-  if (/^https?:\/\//.test(url)) return url;
-  if (!base) return url;
-  if (!url) return base;
-  return `${String(base).replace(/\/$/, "")}/${String(url).replace(/^\//, "")}`;
-}
-
-function serializeAxiosError(error: AxiosError) {
-  return {
-    message: error.message,
-    code: error.code,
-    method: error.config?.method?.toUpperCase() ?? "GET",
-    url: error.config ? resolveRequestUrl(error.config) : undefined,
-    status: error.response?.status,
-    statusText: error.response?.statusText,
-    data: error.response?.data,
-  };
-}
-
 export function setApiBaseUrl(port: number) {
   _baseURL = `http://${TAURI_BACKEND_HOST}:${port}/api`;
   http.defaults.baseURL = _baseURL;
@@ -69,33 +43,8 @@ http.interceptors.request.use((config) => {
   ensureTauriBaseUrl();
   // Update baseURL in case it was just set
   config.baseURL = http.defaults.baseURL;
-  if (isTauriRuntime() && config.url === "/blocks") {
-    console.info("[api][request]", {
-      method: config.method?.toUpperCase() ?? "GET",
-      url: resolveRequestUrl(config),
-    });
-  }
   return config;
 });
-
-http.interceptors.response.use(
-  (response) => {
-    if (isTauriRuntime() && response.config.url === "/blocks") {
-      console.info("[api][response]", {
-        method: response.config.method?.toUpperCase() ?? "GET",
-        url: resolveRequestUrl(response.config),
-        status: response.status,
-      });
-    }
-    return response;
-  },
-  (error: unknown) => {
-    if (isTauriRuntime() && axios.isAxiosError(error)) {
-      console.error("[api][error]", serializeAxiosError(error));
-    }
-    return Promise.reject(error);
-  },
-);
 
 function downloadBlob(blob: Blob, filename: string): void {
   const url = window.URL.createObjectURL(blob);
@@ -132,12 +81,6 @@ function filenameFromDisposition(
 
 export async function fetchBlocks(): Promise<BlockSpec[]> {
   const { data } = await http.get<BlockSpec[]>("/blocks");
-  if (isTauriRuntime()) {
-    console.info("[api][blocks]", {
-      count: data.length,
-      baseURL: http.defaults.baseURL,
-    });
-  }
   return data;
 }
 

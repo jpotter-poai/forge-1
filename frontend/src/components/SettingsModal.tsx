@@ -251,6 +251,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                     type="text"
                     value={workspaceDir}
                     onChange={(e) => setWorkspaceDir(e.target.value)}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
                     className="flex-1 rounded border border-forge-border bg-forge-bg px-3 py-2 text-sm text-forge-text focus:border-forge-accent focus:outline-none font-mono"
                     placeholder="/path/to/workspace"
                   />
