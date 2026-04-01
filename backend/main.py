@@ -30,7 +30,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async with mcp_server.session_manager.run():
             yield
 
-    app = FastAPI(title="Forge API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Forge API", version="0.2.1", lifespan=lifespan)
     app.state.services = services
     app.state.mcp_server = mcp_server
     app.add_middleware(

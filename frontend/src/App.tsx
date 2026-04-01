@@ -719,7 +719,10 @@ export default function App() {
   );
 
   return (
-    <div className="h-full w-full min-h-[100dvh] flex flex-col bg-forge-bg text-forge-text overflow-hidden">
+    <div
+      className="h-full w-full min-w-0 flex flex-col bg-forge-bg text-forge-text overflow-hidden"
+      style={{ minHeight: "var(--forge-app-height)" }}
+    >
       {/* Hidden file input for "Install Block from File…" */}
       <input
         ref={fileInputRef}
@@ -756,7 +759,7 @@ export default function App() {
         onInstallBlock={handleInstallBlockFromFile}
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
         <BlockPalette
           blocks={blocks}
           onDragStart={(spec) => {

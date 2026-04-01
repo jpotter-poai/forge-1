@@ -144,7 +144,7 @@ export function Canvas({
     <div
       ref={reactFlowWrapper}
       data-tour="canvas"
-      className="flex-1 bg-forge-bg relative"
+      className="flex-1 min-h-0 min-w-0 overflow-hidden bg-forge-bg relative"
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >

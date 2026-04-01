@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Forge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "com.jonpot.forge",
   "build": {
     "frontendDist": "../dist",
@@ -17,6 +17,7 @@
         "height": 900,
         "minWidth": 900,
         "minHeight": 600,
+        "devtools": true,
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
