@@ -1,9 +1,14 @@
 use log::info;
-use serde::Serialize;
-use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
+
+const INSTALL_STATE_FILE: &str = "install_state.json";
 
 /// Create a Command that won't spawn a visible console window on Windows.
 #[cfg(target_os = "windows")]
@@ -69,6 +74,148 @@ pub fn forge_data_dir() -> Option<PathBuf> {
     dirs::data_local_dir().map(|d| d.join("Forge"))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InstallState {
+    pub forge_package_hash: String,
+    pub requirements_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallSyncPlan {
+    pub refresh_forge_package: bool,
+    pub refresh_dependencies: bool,
+}
+
+impl InstallSyncPlan {
+    pub fn needs_work(&self) -> bool {
+        self.refresh_forge_package || self.refresh_dependencies
+    }
+}
+
+fn install_state_path() -> Option<PathBuf> {
+    forge_data_dir().map(|d| d.join(INSTALL_STATE_FILE))
+}
+
+pub fn load_install_state() -> Option<InstallState> {
+    let path = install_state_path()?;
+    let data = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+pub fn save_install_state(state: &InstallState) -> Result<(), String> {
+    let path = install_state_path().ok_or("Could not determine install state path")?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create install state directory: {e}"))?;
+    }
+    let json = serde_json::to_string_pretty(state)
+        .map_err(|e| format!("Failed to serialize install state: {e}"))?;
+    fs::write(&path, json).map_err(|e| format!("Failed to write install state: {e}"))?;
+    info!("[install_state] Saved install state to {}", path.display());
+    Ok(())
+}
+
+pub fn bundled_install_state(forge_root: &PathBuf) -> Result<InstallState, String> {
+    Ok(InstallState {
+        forge_package_hash: hash_install_inputs(
+            forge_root,
+            &["pyproject.toml", "backend", "blocks", "Forge"],
+        )?,
+        requirements_hash: hash_install_inputs(forge_root, &["requirements.txt"])?,
+    })
+}
+
+pub fn determine_install_sync(
+    current: &InstallState,
+    installed: Option<&InstallState>,
+    venv_is_new: bool,
+    auto_update_dependencies: bool,
+) -> InstallSyncPlan {
+    if venv_is_new {
+        return InstallSyncPlan {
+            refresh_forge_package: true,
+            refresh_dependencies: true,
+        };
+    }
+
+    let Some(installed) = installed else {
+        // Migration path from older releases: sync everything once so the
+        // existing venv is brought under manifest management.
+        return InstallSyncPlan {
+            refresh_forge_package: true,
+            refresh_dependencies: true,
+        };
+    };
+
+    InstallSyncPlan {
+        refresh_forge_package: installed.forge_package_hash != current.forge_package_hash,
+        refresh_dependencies: auto_update_dependencies
+            || installed.requirements_hash != current.requirements_hash,
+    }
+}
+
+fn hash_install_inputs(forge_root: &Path, relative_paths: &[&str]) -> Result<String, String> {
+    let mut hasher = Sha256::new();
+    for relative in relative_paths {
+        let path = forge_root.join(relative);
+        hash_path_recursive(forge_root, &path, &mut hasher)?;
+    }
+    let digest = hasher.finalize();
+    Ok(format!("{digest:x}"))
+}
+
+fn normalized_relative_path(base: &Path, path: &Path) -> String {
+    path.strip_prefix(base)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn hash_path_recursive(base: &Path, path: &Path, hasher: &mut Sha256) -> Result<(), String> {
+    if path.is_file() {
+        hasher.update(b"file\0");
+        hasher.update(normalized_relative_path(base, path).as_bytes());
+        hasher.update(b"\0");
+
+        let mut file =
+            fs::File::open(path).map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        hasher.update(b"\0");
+        return Ok(());
+    }
+
+    if path.is_dir() {
+        hasher.update(b"dir\0");
+        hasher.update(normalized_relative_path(base, path).as_bytes());
+        hasher.update(b"\0");
+
+        let mut children = fs::read_dir(path)
+            .map_err(|e| format!("Failed to walk {}: {e}", path.display()))?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .collect::<Vec<_>>();
+        children.sort();
+
+        for child in children {
+            hash_path_recursive(base, &child, hasher)?;
+        }
+        return Ok(());
+    }
+
+    hasher.update(b"missing\0");
+    hasher.update(normalized_relative_path(base, path).as_bytes());
+    hasher.update(b"\0");
+    Ok(())
+}
+
 pub fn venv_dir() -> Option<PathBuf> {
     forge_data_dir().map(|d| d.join("venv"))
 }
@@ -91,7 +238,10 @@ pub fn venv_python() -> Option<PathBuf> {
     } else {
         venv.join("bin").join("python")
     };
-    info!("[venv_python] No venv python found, defaulting to: {}", default.display());
+    info!(
+        "[venv_python] No venv python found, defaulting to: {}",
+        default.display()
+    );
     Some(default)
 }
 
@@ -102,7 +252,10 @@ pub fn find_system_python() -> Option<String> {
     if cfg!(target_os = "windows") {
         // Check what the py launcher has installed
         let installed = get_py_launcher_versions();
-        info!("[find_python] py launcher reports versions: {:?}", installed);
+        info!(
+            "[find_python] py launcher reports versions: {:?}",
+            installed
+        );
 
         for minor in [13, 12] {
             let ver = format!("3.{minor}");
@@ -185,7 +338,10 @@ fn get_py_launcher_versions() -> Vec<String> {
                             .take_while(|c| c.is_ascii_digit() || *c == '.')
                             .collect();
                         // Must be at least "3.XX"
-                        if ver.len() >= 4 || (ver.len() == 3 && ver.chars().last().map_or(false, |c| c.is_ascii_digit())) {
+                        if ver.len() >= 4
+                            || (ver.len() == 3
+                                && ver.chars().last().map_or(false, |c| c.is_ascii_digit()))
+                        {
                             Some(ver)
                         } else {
                             None
@@ -225,28 +381,29 @@ fn check_python_suitability(cmd: &str, flag_args: &[&str]) -> bool {
     let mut args: Vec<&str> = flag_args.to_vec();
     args.push(script);
 
-    info!("[check_python] Running: {cmd} {}", args.join(" ").chars().take(60).collect::<String>());
+    info!(
+        "[check_python] Running: {cmd} {}",
+        args.join(" ").chars().take(60).collect::<String>()
+    );
 
     match silent_command(cmd).args(&args).spawn() {
-        Ok(mut child) => {
-            match child.wait_timeout(Duration::from_secs(10)) {
-                Ok(Some(status)) => {
-                    info!("[check_python] {cmd} exited with: {status}");
-                    status.success()
-                }
-                Ok(None) => {
-                    info!("[check_python] {cmd} timed out after 10s, killing");
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    false
-                }
-                Err(e) => {
-                    info!("[check_python] {cmd} wait error: {e}");
-                    let _ = child.kill();
-                    false
-                }
+        Ok(mut child) => match child.wait_timeout(Duration::from_secs(10)) {
+            Ok(Some(status)) => {
+                info!("[check_python] {cmd} exited with: {status}");
+                status.success()
             }
-        }
+            Ok(None) => {
+                info!("[check_python] {cmd} timed out after 10s, killing");
+                let _ = child.kill();
+                let _ = child.wait();
+                false
+            }
+            Err(e) => {
+                info!("[check_python] {cmd} wait error: {e}");
+                let _ = child.kill();
+                false
+            }
+        },
         Err(e) => {
             info!("[check_python] Failed to spawn {cmd}: {e}");
             false
@@ -281,7 +438,8 @@ pub fn create_venv(system_python: &str) -> Result<(), String> {
                 return Err(format!(
                     "Could not remove old environment. A program may be using files in {}. \
                      Close any Python programs or terminals, then retry. ({})",
-                    venv_path.display(), e
+                    venv_path.display(),
+                    e
                 ));
             }
         }
@@ -318,7 +476,10 @@ pub fn create_venv(system_python: &str) -> Result<(), String> {
         if py.exists() {
             info!("[create_venv] Verified venv python at: {}", py.display());
         } else {
-            info!("[create_venv] WARNING: venv python NOT found at: {}", py.display());
+            info!(
+                "[create_venv] WARNING: venv python NOT found at: {}",
+                py.display()
+            );
             // List what actually got created
             if let Ok(entries) = std::fs::read_dir(&venv_path) {
                 let names: Vec<String> = entries
@@ -337,7 +498,11 @@ fn run_pip(python: &PathBuf, cwd: &PathBuf, args: &[&str]) -> Result<(), String>
     let mut full_args = vec!["-m", "pip"];
     full_args.extend_from_slice(args);
 
-    info!("[pip] Running: {} {}", python.display(), full_args.join(" "));
+    info!(
+        "[pip] Running: {} {}",
+        python.display(),
+        full_args.join(" ")
+    );
 
     let output = silent_command(python)
         .current_dir(cwd)
@@ -350,7 +515,11 @@ fn run_pip(python: &PathBuf, cwd: &PathBuf, args: &[&str]) -> Result<(), String>
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         info!("[pip] FAILED. stderr: {stderr}");
         info!("[pip] stdout: {stdout}");
-        let detail = if !stderr.trim().is_empty() { &stderr } else { &stdout };
+        let detail = if !stderr.trim().is_empty() {
+            &stderr
+        } else {
+            &stdout
+        };
         return Err(format!("pip install failed: {detail}"));
     }
 
@@ -358,10 +527,7 @@ fn run_pip(python: &PathBuf, cwd: &PathBuf, args: &[&str]) -> Result<(), String>
     Ok(())
 }
 
-/// Install the Forge backend into the managed venv.
-/// Copies source to a temp directory first because the bundled location
-/// (e.g. C:\Program Files\Forge) is read-only and pip needs to write build artifacts.
-pub fn install_forge(forge_root: &PathBuf) -> Result<(), String> {
+fn prepare_install_dir(forge_root: &PathBuf) -> Result<(PathBuf, PathBuf), String> {
     let python = venv_python().ok_or("Managed venv python not found")?;
     info!("[install_forge] Using python: {}", python.display());
     info!("[install_forge] Forge root: {}", forge_root.display());
@@ -378,47 +544,111 @@ pub fn install_forge(forge_root: &PathBuf) -> Result<(), String> {
     // Program Files on Windows), and pip needs to create egg-info/build artifacts.
     let temp_dir = std::env::temp_dir().join("forge-install-src");
     if temp_dir.exists() {
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = fs::remove_dir_all(&temp_dir);
     }
-    info!("[install_forge] Copying source to temp dir: {}", temp_dir.display());
+    info!(
+        "[install_forge] Copying source to temp dir: {}",
+        temp_dir.display()
+    );
     copy_dir_recursive(forge_root, &temp_dir)
         .map_err(|e| format!("Failed to copy source to temp dir: {e}"))?;
 
-    let install_dir = temp_dir.clone();
+    Ok((python, temp_dir))
+}
 
-    // Upgrade pip first
-    info!("[install_forge] Upgrading pip...");
-    let _ = run_pip(&python, &install_dir, &["install", "--upgrade", "pip", "--quiet"]);
+fn install_forge_package(
+    python: &PathBuf,
+    install_dir: &PathBuf,
+    with_deps: bool,
+) -> Result<(), String> {
+    let mut args = vec!["install", "--force-reinstall"];
+    if !with_deps {
+        args.push("--no-deps");
+    }
+    args.push(".");
+    args.push("--quiet");
 
-    // Install forge package
     info!("[install_forge] Installing forge...");
-    run_pip(&python, &install_dir, &["install", ".", "--quiet"])?;
+    run_pip(python, install_dir, &args)
+}
 
-    // Also install requirements.txt for pinned versions
+fn install_forge_requirements(python: &PathBuf, install_dir: &PathBuf) -> Result<bool, String> {
     let requirements = install_dir.join("requirements.txt");
     if requirements.exists() {
         info!("[install_forge] Installing requirements.txt...");
-        run_pip(&python, &install_dir, &["install", "-r", "requirements.txt", "--quiet"])?;
+        run_pip(
+            python,
+            install_dir,
+            &["install", "-r", "requirements.txt", "--quiet"],
+        )?;
+        return Ok(true);
+    }
+    info!("[install_forge] requirements.txt not found, skipping dependency sync");
+    Ok(false)
+}
+
+/// Sync the Forge package and/or third-party Python dependencies inside the managed venv.
+/// Copies source to a temp directory first because the bundled location
+/// (e.g. C:\Program Files\Forge) is read-only and pip needs to write build artifacts.
+pub fn sync_forge_install(forge_root: &PathBuf, plan: &InstallSyncPlan) -> Result<(), String> {
+    if !plan.needs_work() {
+        info!("[install_forge] No package or dependency refresh needed");
+        return Ok(());
     }
 
-    // Clean up temp dir
-    let _ = std::fs::remove_dir_all(&temp_dir);
+    let (python, install_dir) = prepare_install_dir(forge_root)?;
+    let result: Result<(), String> = (|| {
+        let mut requirements_installed = false;
 
-    info!("[install_forge] All dependencies installed");
+        if plan.refresh_dependencies {
+            info!("[install_forge] Upgrading pip...");
+            let _ = run_pip(
+                &python,
+                &install_dir,
+                &["install", "--upgrade", "pip", "--quiet"],
+            );
+            requirements_installed = install_forge_requirements(&python, &install_dir)?;
+        }
+
+        if plan.refresh_forge_package {
+            install_forge_package(
+                &python,
+                &install_dir,
+                plan.refresh_dependencies && !requirements_installed,
+            )?;
+        }
+
+        Ok(())
+    })();
+
+    if let Err(e) = fs::remove_dir_all(&install_dir) {
+        info!(
+            "[install_forge] Failed to clean temp dir {}: {}",
+            install_dir.display(),
+            e
+        );
+    }
+
+    result?;
+
+    info!(
+        "[install_forge] Managed install sync complete (forge package: {}, dependencies: {})",
+        plan.refresh_forge_package, plan.refresh_dependencies
+    );
     Ok(())
 }
 
 /// Recursively copy a directory and all its contents.
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
         let entry = entry?;
         let file_type = entry.file_type()?;
         let dest_path = dst.join(entry.file_name());
         if file_type.is_dir() {
             copy_dir_recursive(&entry.path(), &dest_path)?;
         } else {
-            std::fs::copy(entry.path(), &dest_path)?;
+            fs::copy(entry.path(), &dest_path)?;
         }
     }
     Ok(())
@@ -427,7 +657,10 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
 /// Start the FastAPI backend server.
 pub fn start_backend(_forge_root: &PathBuf, port: u16) -> Result<std::process::Child, String> {
     let python = venv_python().ok_or("Managed venv python not found")?;
-    info!("[start_backend] Spawning uvicorn on port {port} with python: {}", python.display());
+    info!(
+        "[start_backend] Spawning uvicorn on port {port} with python: {}",
+        python.display()
+    );
 
     // Use the Forge data dir as the working directory (writable), not Program Files.
     // The backend package is already installed in the venv, so cwd doesn't matter for imports.
@@ -438,10 +671,13 @@ pub fn start_backend(_forge_root: &PathBuf, port: u16) -> Result<std::process::C
     let mut child = silent_command(&python)
         .current_dir(&work_dir)
         .args([
-            "-m", "uvicorn",
+            "-m",
+            "uvicorn",
             "backend.main:app",
-            "--host", "127.0.0.1",
-            "--port", &port.to_string(),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
         ])
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -485,5 +721,82 @@ impl ChildExt for std::process::Child {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{determine_install_sync, InstallState};
+
+    fn state(package: &str, requirements: &str) -> InstallState {
+        InstallState {
+            forge_package_hash: package.to_string(),
+            requirements_hash: requirements.to_string(),
+        }
+    }
+
+    #[test]
+    fn new_venv_requires_full_sync() {
+        let current = state("pkg-a", "req-a");
+        let installed = state("pkg-a", "req-a");
+
+        let plan = determine_install_sync(&current, Some(&installed), true, false);
+
+        assert!(plan.refresh_forge_package);
+        assert!(plan.refresh_dependencies);
+    }
+
+    #[test]
+    fn missing_install_state_triggers_one_time_full_sync() {
+        let current = state("pkg-a", "req-a");
+
+        let plan = determine_install_sync(&current, None, false, false);
+
+        assert!(plan.refresh_forge_package);
+        assert!(plan.refresh_dependencies);
+    }
+
+    #[test]
+    fn package_hash_change_refreshes_only_forge_package() {
+        let current = state("pkg-b", "req-a");
+        let installed = state("pkg-a", "req-a");
+
+        let plan = determine_install_sync(&current, Some(&installed), false, false);
+
+        assert!(plan.refresh_forge_package);
+        assert!(!plan.refresh_dependencies);
+    }
+
+    #[test]
+    fn requirements_hash_change_refreshes_dependencies() {
+        let current = state("pkg-a", "req-b");
+        let installed = state("pkg-a", "req-a");
+
+        let plan = determine_install_sync(&current, Some(&installed), false, false);
+
+        assert!(!plan.refresh_forge_package);
+        assert!(plan.refresh_dependencies);
+    }
+
+    #[test]
+    fn auto_update_only_targets_dependencies_when_package_is_current() {
+        let current = state("pkg-a", "req-a");
+        let installed = state("pkg-a", "req-a");
+
+        let plan = determine_install_sync(&current, Some(&installed), false, true);
+
+        assert!(!plan.refresh_forge_package);
+        assert!(plan.refresh_dependencies);
+    }
+
+    #[test]
+    fn matching_state_without_auto_update_skips_sync() {
+        let current = state("pkg-a", "req-a");
+        let installed = state("pkg-a", "req-a");
+
+        let plan = determine_install_sync(&current, Some(&installed), false, false);
+
+        assert!(!plan.refresh_forge_package);
+        assert!(!plan.refresh_dependencies);
     }
 }

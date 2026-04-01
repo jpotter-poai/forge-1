@@ -363,17 +363,18 @@ export function SettingsModal({
                     </p>
                   </div>
 
-                  {/* Package Updates */}
+                  {/* Python Dependency Updates */}
                   <div className="space-y-3">
                     <label className="block text-sm font-medium text-forge-text">
-                      Package Updates
+                      Python Dependencies
                     </label>
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-forge-text">Auto-update on boot</p>
+                        <p className="text-sm text-forge-text">Auto-update dependencies on boot</p>
                         <p className="text-xs text-forge-muted">
-                          When enabled, Forge updates all packages every time it starts.
-                          Disabled by default for faster startup.
+                          Forge itself updates automatically when the app build changes.
+                          Enable this only if you also want third-party Python packages
+                          like scipy or scikit-learn refreshed on every boot.
                         </p>
                       </div>
                       <button
@@ -396,7 +397,7 @@ export function SettingsModal({
                       disabled={updating}
                       className="w-full px-3 py-2 rounded text-sm text-forge-text bg-forge-border/40 hover:bg-forge-border/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {updating ? "Updating packages..." : "Check for package updates"}
+                      {updating ? "Updating dependencies..." : "Check for dependency updates"}
                     </button>
                   </div>
                 </>
