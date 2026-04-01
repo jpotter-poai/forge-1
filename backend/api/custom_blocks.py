@@ -14,7 +14,36 @@ router = APIRouter(prefix="/custom-blocks", tags=["custom-blocks"])
 @router.get("")
 def list_custom_blocks(services: AppServices = Depends(get_services)) -> list[dict]:
     """List all installed custom block files."""
-    return services.custom_block_manager.list_blocks()
+    blocks_by_file: dict[str, list[dict[str, str]]] = {}
+    for spec in services.registry.all_specs():
+        if not spec.is_custom or not spec.custom_filename:
+            continue
+        blocks_by_file.setdefault(spec.custom_filename, []).append(
+            {
+                "key": spec.key,
+                "name": spec.display_name,
+                "category": spec.category,
+                "version": spec.version,
+            }
+        )
+
+    entries = []
+    for entry in services.custom_block_manager.list_blocks():
+        entries.append(
+            {
+                "filename": entry.filename,
+                "stem": entry.stem,
+                "path": entry.path,
+                "requirements": entry.requirements,
+                "title": entry.title,
+                "description": entry.description,
+                "blocks": sorted(
+                    blocks_by_file.get(entry.filename, []),
+                    key=lambda item: item["name"].lower(),
+                ),
+            }
+        )
+    return entries
 
 
 @router.post("/install")

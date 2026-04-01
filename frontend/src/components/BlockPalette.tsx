@@ -1,6 +1,11 @@
 import { useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import type { BlockSpec } from "@/types/pipeline";
+import {
+  categoryIcon,
+  categoryTextClass,
+  useCategoryStyleVersion,
+} from "@/utils/categoryStyles";
 
 interface BlockPaletteProps {
   blocks: BlockSpec[];
@@ -24,54 +29,6 @@ const CATEGORY_ORDER = [
   "Custom",
 ];
 
-const CATEGORY_ICON: Record<string, string> = {
-  IO: "⇄",
-  Operator: "+",
-  Combine: "⊕",
-  Transform: "Δ",
-  Statistics: "σ",
-  Clustering: "⊙",
-  Factorization: "⊗",
-  Dimensionality: "ℝ",
-  Visualization: "📈",
-  Special: "★",
-  Custom: "★",
-};
-
-const CATEGORY_COLOR: Record<string, string> = {
-  IO: "text-violet-400",
-  Operator: "text-green-400",
-  Combine: "text-amber-400",
-  Transform: "text-sky-400",
-  Statistics: "text-blue-400",
-  Clustering: "text-emerald-400",
-  Visualization: "text-pink-400",
-  Factorization: "text-orange-400",
-  Dimensionality: "text-teal-400",
-  Special: "text-yellow-400",
-  Custom: "text-purple-400",
-};
-
-// Stable color assignment for unknown categories using a hash
-function categoryColor(cat: string): string {
-  if (CATEGORY_COLOR[cat]) return CATEGORY_COLOR[cat];
-  const POOL = [
-    "text-rose-400",
-    "text-fuchsia-400",
-    "text-lime-400",
-    "text-cyan-400",
-    "text-indigo-400",
-    "text-red-400",
-  ];
-  let hash = 0;
-  for (let i = 0; i < cat.length; i++) hash = (hash * 31 + cat.charCodeAt(i)) >>> 0;
-  return POOL[hash % POOL.length];
-}
-
-function categoryIcon(cat: string): string {
-  return CATEGORY_ICON[cat] ?? "◈";
-}
-
 export function BlockPalette({
   blocks,
   onDragStart,
@@ -79,6 +36,7 @@ export function BlockPalette({
   onExportBlock,
   onDeleteBlock,
 }: BlockPaletteProps) {
+  useCategoryStyleVersion();
   const [search, setSearch] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -175,7 +133,7 @@ export function BlockPalette({
             <div key={category} data-tour-category={category}>
               <button
                 onClick={() => toggleCategory(category)}
-                className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider rounded hover:bg-forge-border/30 transition-colors duration-100 ${categoryColor(category)}`}
+                className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider rounded hover:bg-forge-border/30 transition-colors duration-100 ${categoryTextClass(category)}`}
               >
                 <span aria-hidden="true">{categoryIcon(category)}</span>
                 <span className="flex-1 text-left">{category}</span>
@@ -410,7 +368,7 @@ function ContextMenuOverlay({
             className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-forge-bg/60 transition-colors text-xs"
           >
             <span aria-hidden="true">↓</span>
-            Export Block Source
+            Export Plugin Source
           </button>
         )}
         {onDelete && (
@@ -419,7 +377,7 @@ function ContextMenuOverlay({
             className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-forge-bg/60 transition-colors text-xs text-forge-error"
           >
             <span aria-hidden="true">✕</span>
-            Uninstall block
+            Uninstall Plugin
           </button>
         )}
       </div>

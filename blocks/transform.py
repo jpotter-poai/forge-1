@@ -304,9 +304,7 @@ class DropNullRows(BaseBlock):
             raise BlockValidationError("how must be one of: any, all.")
 
         null_mask = data[columns].isna()
-        rows_to_drop = (
-            null_mask.any(axis=1) if how == "any" else null_mask.all(axis=1)
-        )
+        rows_to_drop = null_mask.any(axis=1) if how == "any" else null_mask.all(axis=1)
         filtered = data.loc[~rows_to_drop].copy()
         return BlockOutput(
             data=filtered,
@@ -322,7 +320,9 @@ class DeduplicateRows(BaseBlock):
     name = "Deduplicate Rows"
     version = "1.0.0"
     category = "Transform"
-    description = "Drop duplicate rows based on key columns while preserving input order."
+    description = (
+        "Drop duplicate rows based on key columns while preserving input order."
+    )
     input_labels = ["DataFrame"]
     output_labels = ["DataFrame"]
     usage_notes = [
@@ -362,7 +362,7 @@ class DeduplicateRows(BaseBlock):
         if keep not in {"first", "last"}:
             raise BlockValidationError("keep must be one of: first, last.")
 
-        deduped = data.drop_duplicates(subset=key_columns, keep=keep).copy()
+        deduped = data.drop_duplicates(subset=key_columns, keep=keep).copy()  # pyright: ignore[reportArgumentType]
         return BlockOutput(
             data=deduped,
             metadata={
