@@ -141,7 +141,11 @@ def _execute_pipeline_worker(
     _run_id: str,
     event_queue: FileEventQueueWriter,
 ) -> None:
-    registry = BlockRegistry(blocks_dir=settings.blocks_dir, package_name="blocks")
+    registry = BlockRegistry(
+        blocks_dir=settings.blocks_dir,
+        package_name="blocks",
+        custom_blocks_dir=settings.custom_blocks_dir,
+    )
     registry.discover(force_reload=True)
     checkpoint_store = CheckpointStore(settings.checkpoint_dir)
     runner = PipelineRunner(registry=registry, checkpoint_store=checkpoint_store)
@@ -249,6 +253,7 @@ class ExecutionManager:
                 "checkpoint_dir": self._settings.checkpoint_dir,
                 "pipeline_dir": self._settings.pipeline_dir,
                 "blocks_dir": self._settings.blocks_dir,
+                "custom_blocks_dir": self._settings.custom_blocks_dir,
                 "default_file_path": self._settings.default_file_path,
                 "log_level": self._settings.log_level,
                 "cors_origins": self._settings.cors_origins,
