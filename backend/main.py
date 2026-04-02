@@ -15,6 +15,7 @@ from backend.api.pipelines import router as pipelines_router
 from backend.mcp_server import build_mcp_server
 from backend.services import build_services
 from backend.settings import Settings
+from backend.version import get_forge_version
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -30,7 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async with mcp_server.session_manager.run():
             yield
 
-    app = FastAPI(title="Forge API", version="0.2.1", lifespan=lifespan)
+    app = FastAPI(title="Forge API", version=get_forge_version(), lifespan=lifespan)
     app.state.services = services
     app.state.mcp_server = mcp_server
     app.add_middleware(

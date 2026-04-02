@@ -400,7 +400,30 @@ fn schedule_windows_update_install(_installer_path: &Path) -> Result<(), String>
 
 #[cfg(test)]
 mod tests {
-    use super::{is_newer_version, normalize_version, select_update_plan_for, GitHubRelease, GitHubReleaseAsset, UpdatePlan};
+    use super::{
+        is_newer_version, normalize_version, select_update_plan_for, GitHubRelease,
+        GitHubReleaseAsset, UpdatePlan,
+    };
+
+    fn current_version() -> &'static str {
+        env!("CARGO_PKG_VERSION")
+    }
+
+    fn parse_triplet(version: &str) -> [u64; 3] {
+        let mut parts = version
+            .split('.')
+            .map(|part| part.parse::<u64>().unwrap_or(0))
+            .collect::<Vec<_>>();
+        while parts.len() < 3 {
+            parts.push(0);
+        }
+        [parts[0], parts[1], parts[2]]
+    }
+
+    fn next_patch_version() -> String {
+        let [major, minor, patch] = parse_triplet(current_version());
+        format!("{major}.{minor}.{}", patch + 1)
+    }
 
     fn asset(name: &str) -> GitHubReleaseAsset {
         GitHubReleaseAsset {
@@ -410,9 +433,10 @@ mod tests {
     }
 
     fn release(assets: Vec<GitHubReleaseAsset>) -> GitHubRelease {
+        let version = next_patch_version();
         GitHubRelease {
-            tag_name: "v0.2.2".to_string(),
-            html_url: "https://github.com/Jonpot/forge/releases/tag/v0.2.2".to_string(),
+            tag_name: format!("v{version}"),
+            html_url: format!("https://github.com/Jonpot/forge/releases/tag/v{version}"),
             published_at: None,
             assets,
         }
@@ -420,23 +444,26 @@ mod tests {
 
     #[test]
     fn version_prefix_is_removed() {
-        assert_eq!(normalize_version("v0.2.1"), "0.2.1");
-        assert_eq!(normalize_version("0.2.1"), "0.2.1");
+        let version = current_version();
+        assert_eq!(normalize_version(&format!("v{version}")), version);
+        assert_eq!(normalize_version(version), version);
     }
 
     #[test]
     fn version_comparison_handles_patch_and_minor_changes() {
-        assert!(is_newer_version("0.2.10", "0.2.9"));
-        assert!(is_newer_version("v1.0.0", "0.9.9"));
-        assert!(!is_newer_version("0.2.1", "0.2.1"));
-        assert!(!is_newer_version("0.2.0", "0.2.1"));
+        let current = current_version();
+        let next = next_patch_version();
+        assert!(is_newer_version(&next, current));
+        assert!(!is_newer_version(current, current));
+        assert!(!is_newer_version("0.0.0", current));
     }
 
     #[test]
     fn windows_prefers_msi_for_auto_install() {
+        let version = next_patch_version();
         let release = release(vec![
-            asset("Forge_0.2.2_x64-setup.exe"),
-            asset("Forge_0.2.2_x64_en-US.msi"),
+            asset(&format!("Forge_{version}_x64-setup.exe")),
+            asset(&format!("Forge_{version}_x64_en-US.msi")),
         ]);
 
         let plan = select_update_plan_for("windows", "x86_64", &release);
@@ -446,8 +473,9 @@ mod tests {
 
     #[test]
     fn macos_falls_back_to_dmg() {
+        let version = next_patch_version();
         let release = release(vec![
-            asset("Forge_0.2.2_aarch64.dmg"),
+            asset(&format!("Forge_{version}_aarch64.dmg")),
             asset("Forge_x64.app.tar.gz"),
         ]);
 
