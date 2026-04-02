@@ -10,6 +10,13 @@ interface ToolbarProps {
   pipelineName: string;
   pipelineId: string | null;
   customCategories: string[];
+  appUpdate:
+    | {
+        version: string;
+        action: "auto-install" | "open-installer" | "open-release-page";
+        isInstalling: boolean;
+      }
+    | null;
   isRunning: boolean;
   isStopping: boolean;
   isDirty: boolean;
@@ -29,12 +36,14 @@ interface ToolbarProps {
   onDownloadTemplate?: () => void;
   onInstallBlock?: () => void;
   onManagePlugins?: () => void;
+  onInstallAppUpdate?: () => void;
 }
 
 export function Toolbar({
   pipelineName,
   pipelineId,
   customCategories,
+  appUpdate,
   isRunning,
   isStopping,
   isDirty,
@@ -54,6 +63,7 @@ export function Toolbar({
   onDownloadTemplate,
   onInstallBlock,
   onManagePlugins,
+  onInstallAppUpdate,
 }: ToolbarProps) {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -100,6 +110,14 @@ export function Toolbar({
     await apiDeletePipeline(id);
     setPipelines((ps) => ps.filter((p) => p.id !== id));
   };
+
+  const updateTitle = appUpdate
+    ? appUpdate.action === "auto-install"
+      ? `Download and install Forge ${appUpdate.version}`
+      : appUpdate.action === "open-installer"
+        ? `Download the Forge ${appUpdate.version} installer`
+        : `Open the Forge ${appUpdate.version} release page`
+    : "";
 
   return (
     <>
@@ -308,6 +326,47 @@ export function Toolbar({
             </div>
           </div>
         </div>
+
+        {appUpdate && (
+          <button
+            onClick={onInstallAppUpdate}
+            disabled={appUpdate.isInstalling}
+            className={`
+              inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-semibold
+              transition-[background-color,border-color,color,transform] duration-150
+              ${
+                appUpdate.isInstalling
+                  ? "cursor-progress border-[#6ee7b7]/30 bg-[#0f2f26] text-[#9cf3d0]"
+                  : "border-[#6ee7b7]/35 bg-[#12372d] text-[#8bf5cf] hover:bg-[#184438] hover:border-[#86efcc]/60 active:scale-[0.97]"
+              }
+            `}
+            title={updateTitle}
+            aria-label={updateTitle}
+          >
+            {appUpdate.isInstalling ? (
+              <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-[#9cf3d0]/40 border-t-[#9cf3d0] animate-spin" />
+            ) : (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 2.5v7" />
+                <path d="m5.4 7.8 2.6 2.7 2.6-2.7" />
+                <path d="M3 12.5h10" />
+              </svg>
+            )}
+            <span className="hidden lg:inline">
+              {appUpdate.isInstalling ? "Updating…" : `v${appUpdate.version}`}
+            </span>
+          </button>
+        )}
 
         {/* Settings gear */}
         <button

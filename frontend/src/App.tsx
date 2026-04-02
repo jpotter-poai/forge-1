@@ -30,6 +30,7 @@ import { OnboardingTour } from "./components/OnboardingTour";
 import { OnboardingWelcome } from "./components/OnboardingWelcome";
 import { PluginManagerModal } from "./components/PluginManagerModal";
 import { Toolbar } from "./components/Toolbar";
+import { useAppUpdate } from "./hooks/useAppUpdate";
 import { usePipeline, type ForgeNodeData } from "./hooks/usePipeline";
 import type { BlockSpec } from "./types/pipeline";
 import { isBuiltInCategory } from "./utils/categoryStyles";
@@ -142,6 +143,11 @@ function readClipboard(): ClipboardEntry | null {
 }
 
 export default function App() {
+  const {
+    availableUpdate,
+    installing: installingUpdate,
+    installUpdate,
+  } = useAppUpdate();
   const {
     blocks,
     nodes,
@@ -936,6 +942,11 @@ export default function App() {
         pipelineName={pipelineName}
         pipelineId={pipelineId}
         customCategories={customCategories}
+        appUpdate={availableUpdate ? {
+          version: availableUpdate.version,
+          action: availableUpdate.action,
+          isInstalling: installingUpdate,
+        } : null}
         isRunning={isRunning}
         isStopping={isStopping}
         isDirty={isDirty}
@@ -959,6 +970,9 @@ export default function App() {
         onDownloadTemplate={handleDownloadTemplate}
         onInstallBlock={handleInstallBlockFromFile}
         onManagePlugins={openPluginManager}
+        onInstallAppUpdate={() => {
+          void installUpdate();
+        }}
       />
 
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">

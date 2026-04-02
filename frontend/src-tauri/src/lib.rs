@@ -1,5 +1,6 @@
 mod commands;
 mod python;
+mod updater;
 mod workspace;
 
 use python::BackendState;
@@ -36,6 +37,8 @@ pub fn run() {
             commands::save_settings,
             commands::get_log_path,
             commands::update_packages,
+            commands::check_app_update,
+            commands::install_app_update,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

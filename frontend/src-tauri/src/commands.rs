@@ -1,4 +1,5 @@
 use crate::python::{self, BackendState, BackendStatus};
+use crate::updater;
 use crate::workspace;
 use std::path::PathBuf;
 use tauri::{Emitter, Manager, State};
@@ -331,4 +332,16 @@ pub async fn update_packages(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Task failed: {e}"))??;
     python::save_install_state(&current_install_state)?;
     Ok(())
+}
+
+/// Check GitHub Releases for a newer Forge desktop build.
+#[tauri::command]
+pub async fn check_app_update() -> Result<Option<updater::AppUpdateInfo>, String> {
+    updater::check_app_update().await
+}
+
+/// Download and launch the latest compatible Forge desktop installer.
+#[tauri::command]
+pub async fn install_app_update() -> Result<updater::InstallAppUpdateResult, String> {
+    updater::install_app_update().await
 }
