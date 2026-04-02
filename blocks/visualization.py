@@ -128,11 +128,7 @@ def _parse_text_list(value: Any) -> list[str]:
             except Exception:
                 parsed = None
             if isinstance(parsed, list):
-                return [
-                    str(item).strip()
-                    for item in parsed
-                    if str(item).strip()
-                ]
+                return [str(item).strip() for item in parsed if str(item).strip()]
             text = text[1:-1]
         parts = [part.strip().strip("'").strip('"') for part in text.split(",")]
         return [part for part in parts if part]
@@ -217,9 +213,7 @@ def _draw_reference_bands(
     for spec in specs:
         axis = str(spec.get("axis", "x") or "x").strip().lower()
         if axis not in {"x", "y"}:
-            raise BlockValidationError(
-                f"{block_name} band axis must be 'x' or 'y'."
-            )
+            raise BlockValidationError(f"{block_name} band axis must be 'x' or 'y'.")
         try:
             start = float(spec["start"])
             end = float(spec["end"])
@@ -249,9 +243,7 @@ def _draw_reference_lines(
     for spec in specs:
         axis = str(spec.get("axis", "x") or "x").strip().lower()
         if axis not in {"x", "y"}:
-            raise BlockValidationError(
-                f"{block_name} line axis must be 'x' or 'y'."
-            )
+            raise BlockValidationError(f"{block_name} line axis must be 'x' or 'y'.")
         try:
             value = float(spec["value"])
         except Exception as exc:
@@ -350,7 +342,9 @@ def _require_two_dataframes(
 
     nodes_df, edges_df = data
     if not isinstance(nodes_df, pd.DataFrame) or not isinstance(edges_df, pd.DataFrame):
-        raise BlockValidationError(f"{block_name} expects both inputs to be DataFrames.")
+        raise BlockValidationError(
+            f"{block_name} expects both inputs to be DataFrames."
+        )
     return nodes_df, edges_df
 
 
@@ -1310,7 +1304,7 @@ class HighlightedScatterPlot(VisualizationBlock):
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=_coerce_figsize(params.figsize, (10.0, 6.0)))
-        default_cycle = list(plt.get_cmap("tab10").colors)
+        default_cycle = list(plt.get_cmap("tab10").colors)  # pyright: ignore[reportAttributeAccessIssue]
         highlight_colors = _parse_text_list(params.highlight_colors)
         if highlight_colors and len(highlight_colors) != len(highlight_values):
             raise BlockValidationError(
@@ -1578,7 +1572,7 @@ class HighlightedBarChart(VisualizationBlock):
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=_coerce_figsize(params.figsize, (14.0, 8.0)))
-        default_cycle = list(plt.get_cmap("tab10").colors)
+        default_cycle = list(plt.get_cmap("tab10").colors)  # pyright: ignore[reportAttributeAccessIssue]
         highlight_values = _parse_text_list(params.highlight_values)
         highlight_colors = _parse_text_list(params.highlight_colors)
         if highlight_colors and len(highlight_colors) != len(highlight_values):
@@ -1594,8 +1588,8 @@ class HighlightedBarChart(VisualizationBlock):
             for index, value in enumerate(highlight_values)
         }
         plot_df["_is_highlight"] = plot_df["_key"].isin(set(highlight_values))
-        plot_df["_color"] = plot_df["_key"].map(color_map).fillna(
-            str(params.default_color)
+        plot_df["_color"] = (
+            plot_df["_key"].map(color_map).fillna(str(params.default_color))
         )
 
         positions = np.arange(plot_df.shape[0], dtype=float)
@@ -1802,7 +1796,7 @@ class FacetedScatterPlot(VisualizationBlock):
             figsize=_coerce_figsize(params.figsize, (18.0, 10.0)),
         )
         axes_array = np.atleast_1d(axes).ravel()
-        default_cycle = list(plt.get_cmap("tab10").colors)
+        default_cycle = list(plt.get_cmap("tab10").colors)  # pyright: ignore[reportAttributeAccessIssue]
         facet_color_map = _parse_json_mapping(
             params.facet_color_map,
             block_name="FacetedScatterPlot",
@@ -1865,9 +1859,7 @@ class FacetedScatterPlot(VisualizationBlock):
                     zorder=1.0,
                 )
 
-            context = {
-                key: value for key, value in facet_df.iloc[0].to_dict().items()
-            }
+            context = {key: value for key, value in facet_df.iloc[0].to_dict().items()}
             context["facet_value"] = facet_value
             context["status_label"] = str(facet_status_map.get(facet_value, "") or "")
             title_template = str(
@@ -1875,7 +1867,7 @@ class FacetedScatterPlot(VisualizationBlock):
             )
             title_text = _format_text_template(
                 title_template,
-                context,
+                context,  # pyright: ignore[reportArgumentType]
                 block_name="FacetedScatterPlot",
                 param_name="facet_title_map"
                 if facet_value in facet_title_map
@@ -2071,9 +2063,7 @@ class AnnotatePlotWithArrows(VisualizationBlock):
             source_label = _normalize_plot_label(values[0])
             destination_labels = [
                 label
-                for label in (
-                    _normalize_plot_label(value) for value in values[1:]
-                )
+                for label in (_normalize_plot_label(value) for value in values[1:])
                 if label is not None
             ]
 
@@ -2111,12 +2101,12 @@ class AnnotatePlotWithArrows(VisualizationBlock):
         arrow_zorder = 3
         for source_label, destination_labels in parsed_edges:
             source_xy = node_lookup.loc[source_label]
-            source = (float(source_xy["_x"]), float(source_xy["_y"]))
+            source = (float(source_xy["_x"]), float(source_xy["_y"]))  # pyright: ignore[reportArgumentType]
             for destination_label in destination_labels:
                 destination_xy = node_lookup.loc[destination_label]
                 ax.annotate(
                     "",
-                    xy=(float(destination_xy["_x"]), float(destination_xy["_y"])),
+                    xy=(float(destination_xy["_x"]), float(destination_xy["_y"])),  # pyright: ignore[reportArgumentType]
                     xytext=source,
                     arrowprops={
                         "arrowstyle": str(params.arrow_style),

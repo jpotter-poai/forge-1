@@ -48,15 +48,24 @@ PACKAGE DEPENDENCIES
 If your block imports third-party packages, list them in REQUIREMENTS below.
 Forge will pip-install them automatically when this file is first dropped in.
 
+PLUGIN METADATA
+---------------
+Each .py file is treated as a plugin file. Optionally declare PLUGIN_TITLE and
+PLUGIN_DESCRIPTION to control how the plugin appears in the Manage Plugins UI.
+
 USAGE
 -----
 * Drag this .py file onto the Forge canvas to install.
-* Right-click the block in the palette → "Export Block" to share it.
+* Right-click the block in the palette → "Export Plugin Source" to share it.
 """
 
 # List any extra pip packages your block needs.
 # Example: REQUIREMENTS = ["scipy>=1.12", "statsmodels"]
 REQUIREMENTS: list[str] = []
+
+# Optional plugin metadata shown in the Manage Plugins window.
+PLUGIN_TITLE = "{block_name}"
+PLUGIN_DESCRIPTION = "Describe what this plugin file provides."
 
 from backend.block import BaseBlock, BlockOutput, BlockParams, BlockValidationError, block_param
 import pandas as pd
@@ -210,6 +219,84 @@ def _extract_imports(source: str) -> list[str]:
     return missing
 
 
+def _iter_module_assignments(tree: ast.AST) -> list[tuple[str, ast.AST]]:
+    assignments: list[tuple[str, ast.AST]] = []
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name):
+                assignments.append((target.id, node.value))
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            assignments.append((node.target.id, node.value))
+    return assignments
+
+
+def _humanize_plugin_title(filename_stem: str) -> str:
+    parts = [part for part in re.split(r"[\s_\-]+", filename_stem) if part]
+    if not parts:
+        return filename_stem or "Custom Plugin"
+    return " ".join(part[:1].upper() + part[1:] for part in parts)
+
+
+def _default_plugin_description(filename: str) -> str:
+    return f"Custom block plugin installed from {filename}."
+
+
+@dataclass(frozen=True, slots=True)
+class PluginMetadata:
+    title: str
+    description: str
+
+
+def _extract_plugin_metadata(source: str, filename: str) -> PluginMetadata:
+    stem = Path(filename).stem
+    title: str | None = None
+    description: str | None = None
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return PluginMetadata(
+            title=_humanize_plugin_title(stem),
+            description=_default_plugin_description(filename),
+        )
+
+    for key, value_node in _iter_module_assignments(tree):
+        try:
+            value = ast.literal_eval(value_node)
+        except Exception:
+            continue
+
+        if key == "PLUGIN_METADATA" and isinstance(value, dict):
+            meta_title = value.get("title")
+            meta_description = value.get("description")
+            if title is None and isinstance(meta_title, str) and meta_title.strip():
+                title = meta_title.strip()
+            if (
+                description is None
+                and isinstance(meta_description, str)
+                and meta_description.strip()
+            ):
+                description = meta_description.strip()
+        elif key == "PLUGIN_TITLE" and isinstance(value, str) and value.strip():
+            title = value.strip()
+        elif (
+            key == "PLUGIN_DESCRIPTION"
+            and isinstance(value, str)
+            and value.strip()
+        ):
+            description = value.strip()
+
+    return PluginMetadata(
+        title=title or _humanize_plugin_title(stem),
+        description=description or _default_plugin_description(filename),
+    )
+
+
 # ── Installation result ────────────────────────────────────────────────────────
 
 @dataclass
@@ -225,6 +312,16 @@ class InstallResult:
     # no conflict_resolution was provided.
     conflict: bool = False
     suggested_filename: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CustomBlockFileInfo:
+    filename: str
+    stem: str
+    path: str
+    requirements: list[str]
+    title: str
+    description: str
 
 
 # ── Manager ────────────────────────────────────────────────────────────────────
@@ -247,21 +344,26 @@ class CustomBlockManager:
 
     # ── List ──────────────────────────────────────────────────────────────────
 
-    def list_blocks(self) -> list[dict[str, Any]]:
+    def list_blocks(self) -> list[CustomBlockFileInfo]:
         """Return metadata about all installed custom block files."""
         if not self.custom_blocks_dir.exists():
             return []
-        result: list[dict[str, Any]] = []
+        result: list[CustomBlockFileInfo] = []
         for path in sorted(self.custom_blocks_dir.glob("*.py")):
             if path.name.startswith("_"):
                 continue
             source = path.read_text(encoding="utf-8")
-            result.append({
-                "filename": path.name,
-                "stem": path.stem,
-                "path": str(path),
-                "requirements": _extract_requirements(source),
-            })
+            metadata = _extract_plugin_metadata(source, path.name)
+            result.append(
+                CustomBlockFileInfo(
+                    filename=path.name,
+                    stem=path.stem,
+                    path=str(path),
+                    requirements=_extract_requirements(source),
+                    title=metadata.title,
+                    description=metadata.description,
+                )
+            )
         return result
 
     # ── Install ───────────────────────────────────────────────────────────────
@@ -312,8 +414,9 @@ class CustomBlockManager:
                 message=f"Syntax error in block file: {exc}",
             )
 
-        # Extract block display name from source (best-effort)
-        block_name = _extract_block_name(source) or Path(filename).stem
+        # Use plugin metadata for user-facing install messages when available.
+        plugin_metadata = _extract_plugin_metadata(source, filename)
+        block_name = plugin_metadata.title or _extract_block_name(source) or Path(filename).stem
 
         # ── Conflict check ────────────────────────────────────────────────────
         dest = self.custom_blocks_dir / filename

@@ -11,6 +11,11 @@ import {
 } from "@xyflow/react";
 import { checkpointImageUrl, getCheckpointProvenance } from "@/api/client";
 import type { ForgeNodeData } from "@/hooks/usePipeline";
+import {
+  categoryBadgeClass,
+  categoryIcon,
+  useCategoryStyleVersion,
+} from "@/utils/categoryStyles";
 
 type ForgeNode = Node<ForgeNodeData, "forgeBlock">;
 
@@ -48,30 +53,20 @@ const STATUS_DOT: Record<string, string> = {
   error: "bg-forge-error",
 };
 
-const CATEGORY_BADGE: Record<string, string> = {
-  IO: "bg-violet-900/50 text-violet-300",
-  Transform: "bg-sky-900/50 text-sky-300",
-  Clustering: "bg-emerald-900/50 text-emerald-300",
-  Visualization: "bg-pink-900/50 text-pink-300",
-  Combine: "bg-amber-900/50 text-amber-300",
-  Factorization: "bg-orange-900/50 text-orange-300",
-  Dimensionality: "bg-teal-900/50 text-teal-300",
-  Special: "bg-yellow-900/50 text-yellow-300",
-};
-
 export const BlockNode = memo(function BlockNode({
   id,
   data,
   selected,
   width,
 }: NodeProps<ForgeNode>) {
+  useCategoryStyleVersion();
   const { blockName, category, n_inputs, inputLabels, outputLabels, nodeState } = data;
   const { getNode, setNodes } = useReactFlow();
   const status = nodeState?.status ?? "idle";
   const border = STATUS_BORDER[status] ?? STATUS_BORDER.idle;
   const header = STATUS_HEADER[status] ?? STATUS_HEADER.idle;
-  const badge =
-    CATEGORY_BADGE[category] ?? "bg-slate-800/50 text-slate-300";
+  const badge = categoryBadgeClass(category);
+  const icon = categoryIcon(category);
 
   // Ensure the block is tall enough to contain all input handles.
   // Handles for n_inputs > 1 are positioned at (30 + i*24)px from the top;
@@ -339,8 +334,9 @@ export const BlockNode = memo(function BlockNode({
         {/* Footer */}
         <div className="px-3 py-1.5 flex items-center justify-between gap-2">
           <span
-            className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${badge}`}
+            className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded ${badge}`}
           >
+            <span aria-hidden="true">{icon}</span>
             {category}
           </span>
           <span className="text-[10px] text-forge-muted">

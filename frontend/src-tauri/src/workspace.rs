@@ -11,7 +11,7 @@ pub struct WorkspaceConfig {
     pub workspace_dir: String,
     /// Whether first-time setup has been completed
     pub setup_complete: bool,
-    /// Whether to automatically update packages on every boot (default: false)
+    /// Whether to automatically refresh third-party Python dependencies on every boot.
     #[serde(default)]
     pub auto_update_packages: bool,
 }

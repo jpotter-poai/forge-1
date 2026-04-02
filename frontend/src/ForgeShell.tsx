@@ -4,7 +4,7 @@
  * In browser mode: renders children immediately (backend managed externally).
  */
 
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useTauri } from "@/hooks/useTauri";
 import { SetupScreen } from "@/components/SetupScreen";
 import { WorkspaceSetup } from "@/components/WorkspaceSetup";
@@ -21,6 +21,97 @@ export function ForgeShell({ children }: Props) {
   >(null);
   const [appReady, setAppReady] = useState(false);
   const [appKey, setAppKey] = useState(0);
+
+  useLayoutEffect(() => {
+    let disposed = false;
+    const cleanups: Array<() => void> = [];
+
+    const setViewportHeight = (height: number) => {
+      if (!Number.isFinite(height) || height <= 0) return;
+      document.documentElement.style.setProperty(
+        "--forge-app-height",
+        `${height}px`,
+      );
+    };
+
+    const syncFromDom = () => {
+      setViewportHeight(window.visualViewport?.height ?? window.innerHeight);
+    };
+
+    const syncFromTauri = async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const appWindow = getCurrentWindow();
+        const [size, factor] = await Promise.all([
+          appWindow.innerSize(),
+          appWindow.scaleFactor(),
+        ]);
+        if (disposed) return;
+        setViewportHeight(size.toLogical(factor).height);
+      } catch {
+        if (!disposed) syncFromDom();
+      }
+    };
+
+    const handleResize = () => {
+      if (isTauri) {
+        void syncFromTauri();
+      } else {
+        syncFromDom();
+      }
+    };
+
+    syncFromDom();
+    window.addEventListener("resize", handleResize);
+    cleanups.push(() => window.removeEventListener("resize", handleResize));
+
+    const viewport = window.visualViewport;
+    if (viewport) {
+      viewport.addEventListener("resize", handleResize);
+      cleanups.push(() => viewport.removeEventListener("resize", handleResize));
+    }
+
+    if (isTauri) {
+      void (async () => {
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          const appWindow = getCurrentWindow();
+          if (disposed) return;
+
+          const unlistenResize = await appWindow.onResized(({ payload }) => {
+            appWindow.scaleFactor()
+              .then((factor) => {
+                if (disposed) return;
+                setViewportHeight(payload.toLogical(factor).height);
+              })
+              .catch(() => {
+                if (!disposed) syncFromDom();
+              });
+          });
+          cleanups.push(() => {
+            unlistenResize();
+          });
+
+          const unlistenScale = await appWindow.onScaleChanged(({ payload }) => {
+            if (disposed) return;
+            setViewportHeight(payload.size.toLogical(payload.scaleFactor).height);
+          });
+          cleanups.push(() => {
+            unlistenScale();
+          });
+
+          await syncFromTauri();
+        } catch {
+          if (!disposed) syncFromDom();
+        }
+      })();
+    }
+
+    return () => {
+      disposed = true;
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, [isTauri]);
 
   // When the backend is ready in Tauri mode, update the API client
   // and check if workspace setup is needed
@@ -83,5 +174,5 @@ export function ForgeShell({ children }: Props) {
     return <SetupScreen stage={stage} error={error} onRetry={retry} />;
   }
 
-  return <div key={appKey}>{children}</div>;
+  return <Fragment key={appKey}>{children}</Fragment>;
 }

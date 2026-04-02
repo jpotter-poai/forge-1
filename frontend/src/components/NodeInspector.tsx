@@ -6,6 +6,11 @@ import { ImageLightbox, ImageThumbnail } from "./ImagePreview";
 import type { ForgeNodeData } from "@/hooks/usePipeline";
 import type { BlockParamSpec, BrowseMode, CheckpointPreview } from "@/types/pipeline";
 import type { Node } from "@xyflow/react";
+import {
+  categoryBadgeClass,
+  categoryIcon,
+  useCategoryStyleVersion,
+} from "@/utils/categoryStyles";
 
 interface NodeInspectorProps {
   node: Node<ForgeNodeData>;
@@ -18,6 +23,7 @@ export function NodeInspector({
   onParamsChange,
   onDelete,
 }: NodeInspectorProps) {
+  useCategoryStyleVersion();
   const { data } = node;
   const {
     blockName,
@@ -76,6 +82,8 @@ export function NodeInspector({
   };
 
   const status = nodeState?.status ?? "idle";
+  const categoryBadge = categoryBadgeClass(category);
+  const categorySymbol = categoryIcon(category);
 
   // Determine available images from provenance (stored in checkpoint)
   // We rely on checkpointId being present; images listed in preview.dtypes won't include images,
@@ -92,7 +100,14 @@ export function NodeInspector({
             <h2 className="text-forge-text font-semibold text-sm break-words">
               {blockName}
             </h2>
-            <p className="text-forge-muted text-[11px] mt-0.5">{category}</p>
+            <p className="mt-1">
+              <span
+                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${categoryBadge}`}
+              >
+                <span aria-hidden="true">{categorySymbol}</span>
+                {category}
+              </span>
+            </p>
             {description && (
               <p className="text-forge-muted text-[11px] mt-1.5 leading-snug">
                 {description}

@@ -17,16 +17,23 @@ import {
   deleteCustomBlock,
   downloadBlockTemplate,
   exportCustomBlock,
+  extractPluginMetadataFromSource,
+  getCustomBlockSource,
+  listCustomBlocks,
   type InstallBlockResult,
+  type CustomBlockEntry,
 } from "./api/client";
 import { BlockPalette } from "./components/BlockPalette";
 import { Canvas } from "./components/Canvas";
 import { NodeInspector } from "./components/NodeInspector";
 import { OnboardingTour } from "./components/OnboardingTour";
 import { OnboardingWelcome } from "./components/OnboardingWelcome";
+import { PluginManagerModal } from "./components/PluginManagerModal";
 import { Toolbar } from "./components/Toolbar";
+import { useAppUpdate } from "./hooks/useAppUpdate";
 import { usePipeline, type ForgeNodeData } from "./hooks/usePipeline";
 import type { BlockSpec } from "./types/pipeline";
+import { isBuiltInCategory } from "./utils/categoryStyles";
 
 const HISTORY_LIMIT = 50;
 const GRID_SNAP_SIZE = 50;
@@ -71,6 +78,45 @@ interface ClipboardEntry {
   nodes: Node<ForgeNodeData>[];
 }
 
+type PluginBlockSummary = CustomBlockEntry["blocks"][number];
+
+function fallbackPluginTitle(filename: string): string {
+  const stem = filename.replace(/\.py$/i, "");
+  const parts = stem.split(/[\s_-]+/).filter(Boolean);
+  if (parts.length === 0) {
+    return "Custom Plugin";
+  }
+  return parts
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function fallbackPluginDescription(filename: string): string {
+  return `Custom block plugin installed from ${filename}.`;
+}
+
+function sortPluginBlocks(blocks: PluginBlockSummary[]): PluginBlockSummary[] {
+  return [...blocks].sort(
+    (a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
+      a.key.localeCompare(b.key, undefined, { sensitivity: "base" }),
+  );
+}
+
+function mergePluginBlocks(
+  primary: PluginBlockSummary[],
+  fallback: PluginBlockSummary[],
+): PluginBlockSummary[] {
+  const merged = new Map<string, PluginBlockSummary>();
+  for (const block of fallback) {
+    merged.set(block.key, block);
+  }
+  for (const block of primary) {
+    merged.set(block.key, block);
+  }
+  return sortPluginBlocks(Array.from(merged.values()));
+}
+
 function generateClipboardId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -97,6 +143,11 @@ function readClipboard(): ClipboardEntry | null {
 }
 
 export default function App() {
+  const {
+    availableUpdate,
+    installing: installingUpdate,
+    installUpdate,
+  } = useAppUpdate();
   const {
     blocks,
     nodes,
@@ -132,16 +183,135 @@ export default function App() {
     | { phase: "idle" }
     | { phase: "installing"; filename: string }
     | { phase: "conflict"; file: File; existingFilename: string; suggestedFilename: string }
-    | { phase: "result"; result: InstallBlockResult }
+    | { phase: "result"; result: InstallBlockResult; pluginTitle: string }
     | { phase: "error"; message: string }
   >({ phase: "idle" });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showPluginManager, setShowPluginManager] = useState(false);
+  const [customPlugins, setCustomPlugins] = useState<CustomBlockEntry[]>([]);
+  const [pluginsLoading, setPluginsLoading] = useState(false);
+  const [pluginsError, setPluginsError] = useState<string | null>(null);
+
+  const hydratePluginsFromSource = useCallback(
+    async (plugins: CustomBlockEntry[]) => {
+      return Promise.all(
+        plugins.map(async (plugin) => {
+          const needsMetadataRefresh =
+            plugin.title === fallbackPluginTitle(plugin.filename) ||
+            plugin.description === fallbackPluginDescription(plugin.filename);
+          if (!needsMetadataRefresh) {
+            return plugin;
+          }
+
+          try {
+            const source = await getCustomBlockSource(plugin.filename);
+            return {
+              ...plugin,
+              ...extractPluginMetadataFromSource(source, plugin.filename),
+            };
+          } catch {
+            return plugin;
+          }
+        }),
+      );
+    },
+    [],
+  );
+
+  const pluginBlocksFromRegistry = useMemo(() => {
+    const byFilename = new Map<string, PluginBlockSummary[]>();
+    for (const spec of blocks) {
+      if (!spec.is_custom || !spec.custom_filename) {
+        continue;
+      }
+      const filename = spec.custom_filename;
+      const current = byFilename.get(filename) ?? [];
+      current.push({
+        key: spec.key,
+        name: spec.name,
+        category: spec.category,
+        version: spec.version,
+      });
+      byFilename.set(filename, current);
+    }
+    for (const [filename, entries] of byFilename) {
+      byFilename.set(filename, sortPluginBlocks(entries));
+    }
+    return byFilename;
+  }, [blocks]);
+
+  const pluginsForManager = useMemo(() => {
+    const byFilename = new Map<string, CustomBlockEntry>();
+
+    for (const plugin of customPlugins) {
+      byFilename.set(plugin.filename, {
+        ...plugin,
+        blocks: mergePluginBlocks(
+          plugin.blocks,
+          pluginBlocksFromRegistry.get(plugin.filename) ?? [],
+        ),
+      });
+    }
+
+    for (const [filename, registryBlocks] of pluginBlocksFromRegistry) {
+      if (byFilename.has(filename)) {
+        continue;
+      }
+      byFilename.set(filename, {
+        filename,
+        stem: filename.replace(/\.py$/i, ""),
+        path: filename,
+        requirements: [],
+        title: fallbackPluginTitle(filename),
+        description: fallbackPluginDescription(filename),
+        blocks: registryBlocks,
+      });
+    }
+
+    return Array.from(byFilename.values()).sort(
+      (a, b) =>
+        a.title.localeCompare(b.title, undefined, { sensitivity: "base" }) ||
+        a.filename.localeCompare(b.filename, undefined, { sensitivity: "base" }),
+    );
+  }, [customPlugins, pluginBlocksFromRegistry]);
+
+  const customCategories = useMemo(() => {
+    return [...new Set(
+      blocks
+        .filter((spec) => spec.is_custom)
+        .map((spec) => spec.category)
+        .filter((category) => category.trim().length > 0)
+        .filter((category) => !isBuiltInCategory(category)),
+    )].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [blocks]);
+
+  const loadCustomPlugins = useCallback(async () => {
+    setPluginsLoading(true);
+    setPluginsError(null);
+    try {
+      const plugins = await listCustomBlocks();
+      setCustomPlugins(await hydratePluginsFromSource(plugins));
+    } catch (err: unknown) {
+      setPluginsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPluginsLoading(false);
+    }
+  }, [hydratePluginsFromSource]);
+
+  const openPluginManager = useCallback(() => {
+    setShowPluginManager(true);
+    void loadCustomPlugins();
+  }, [loadCustomPlugins]);
 
   const runInstall = useCallback(
     async (file: File, conflictResolution?: "overwrite" | "rename") => {
       setInstallState({ phase: "installing", filename: file.name });
       try {
+        const pluginMetadata = extractPluginMetadataFromSource(
+          await file.text(),
+          file.name,
+        );
         const result = await installCustomBlock(file, conflictResolution);
         if (result.conflict) {
           // Pause and ask the user how to resolve the conflict
@@ -153,9 +323,14 @@ export default function App() {
           });
           return;
         }
-        setInstallState({ phase: "result", result });
+        setInstallState({
+          phase: "result",
+          result,
+          pluginTitle: pluginMetadata.title,
+        });
         if (result.success) {
           reloadBlocks();
+          void loadCustomPlugins();
         }
       } catch (err: unknown) {
         setInstallState({
@@ -164,7 +339,7 @@ export default function App() {
         });
       }
     },
-    [reloadBlocks],
+    [loadCustomPlugins, reloadBlocks],
   );
 
   const handleDropBlockFile = useCallback(
@@ -215,23 +390,54 @@ export default function App() {
     const filename = spec.custom_filename;
     exportCustomBlock(filename)
       .then(() => {
-        showExportToast("Block source exported", `${filename} saved to your Downloads folder.`);
+        showExportToast("Plugin source exported", `${filename} saved to your Downloads folder.`);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
-        showExportToast("Block export failed", msg);
+        showExportToast("Plugin export failed", msg);
       });
   }, [showExportToast]);
 
   const handleDeleteBlock = useCallback(
     (spec: BlockSpec) => {
       if (!spec.custom_filename) return;
-      if (!confirm(`Uninstall "${spec.name}"? This cannot be undone.`)) return;
+      if (
+        !confirm(
+          `Uninstall plugin "${spec.custom_filename}"? Any blocks defined in that file will be removed.`,
+        )
+      ) {
+        return;
+      }
       void deleteCustomBlock(spec.custom_filename).then(() => {
         reloadBlocks();
+        void loadCustomPlugins();
       });
     },
-    [reloadBlocks],
+    [loadCustomPlugins, reloadBlocks],
+  );
+
+  const handleExportPlugin = useCallback((plugin: CustomBlockEntry) => {
+    void exportCustomBlock(plugin.filename);
+  }, []);
+
+  const handleDeletePlugin = useCallback(
+    (plugin: CustomBlockEntry) => {
+      const blockSummary = plugin.blocks.length === 1
+        ? `This will remove 1 block from "${plugin.title}".`
+        : `This will remove ${plugin.blocks.length} blocks from "${plugin.title}".`;
+      if (
+        !confirm(
+          `Delete plugin "${plugin.title}" (${plugin.filename})?\n\n${blockSummary}`,
+        )
+      ) {
+        return;
+      }
+      void deleteCustomBlock(plugin.filename).then(() => {
+        reloadBlocks();
+        void loadCustomPlugins();
+      });
+    },
+    [loadCustomPlugins, reloadBlocks],
   );
 
   // ── Onboarding ──────────────────────────────────────────────────────────────
@@ -719,7 +925,10 @@ export default function App() {
   );
 
   return (
-    <div className="h-full w-full min-h-[100dvh] flex flex-col bg-forge-bg text-forge-text overflow-hidden">
+    <div
+      className="h-full w-full min-w-0 flex flex-col bg-forge-bg text-forge-text overflow-hidden"
+      style={{ minHeight: "var(--forge-app-height)" }}
+    >
       {/* Hidden file input for "Install Block from File…" */}
       <input
         ref={fileInputRef}
@@ -732,6 +941,12 @@ export default function App() {
       <Toolbar
         pipelineName={pipelineName}
         pipelineId={pipelineId}
+        customCategories={customCategories}
+        appUpdate={availableUpdate ? {
+          version: availableUpdate.version,
+          action: availableUpdate.action,
+          isInstalling: installingUpdate,
+        } : null}
         isRunning={isRunning}
         isStopping={isStopping}
         isDirty={isDirty}
@@ -754,9 +969,13 @@ export default function App() {
         }}
         onDownloadTemplate={handleDownloadTemplate}
         onInstallBlock={handleInstallBlockFromFile}
+        onManagePlugins={openPluginManager}
+        onInstallAppUpdate={() => {
+          void installUpdate();
+        }}
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
         <BlockPalette
           blocks={blocks}
           onDragStart={(spec) => {
@@ -849,6 +1068,21 @@ export default function App() {
         />
       )}
 
+      <PluginManagerModal
+        open={showPluginManager}
+        plugins={pluginsForManager}
+        loading={pluginsLoading}
+        error={pluginsForManager.length === 0 ? pluginsError : null}
+        onInstall={handleInstallBlockFromFile}
+        onDownloadTemplate={handleDownloadTemplate}
+        onRefresh={() => {
+          void loadCustomPlugins();
+        }}
+        onClose={() => setShowPluginManager(false)}
+        onExport={handleExportPlugin}
+        onDelete={handleDeletePlugin}
+      />
+
       {/* Block install progress / result modal */}
       {installState.phase !== "idle" && (
         <BlockInstallModal
@@ -901,7 +1135,7 @@ function BlockInstallModal({
   state:
     | { phase: "installing"; filename: string }
     | { phase: "conflict"; file: File; existingFilename: string; suggestedFilename: string }
-    | { phase: "result"; result: InstallBlockResult }
+    | { phase: "result"; result: InstallBlockResult; pluginTitle: string }
     | { phase: "error"; message: string };
   onClose: () => void;
   onResolveConflict: (file: File, resolution: "overwrite" | "rename") => void;
@@ -909,9 +1143,9 @@ function BlockInstallModal({
   const isBlocking = state.phase === "installing";
 
   const title =
-    state.phase === "installing" ? "Installing Block…" :
+    state.phase === "installing" ? "Installing Plugin…" :
     state.phase === "conflict"   ? "File Already Installed" :
-    state.phase === "result"     ? (state.result.success ? "Block Installed" : "Install Failed") :
+    state.phase === "result"     ? (state.result.success ? "Plugin Installed" : "Install Failed") :
     "Install Error";
 
   return (
@@ -963,7 +1197,9 @@ function BlockInstallModal({
           {state.phase === "result" && (
             <>
               <p className={`text-sm font-medium ${state.result.success ? "text-forge-complete" : "text-forge-error"}`}>
-                {state.result.success ? "✓ " : "⚠ "}{state.result.message}
+                {state.result.success
+                  ? `✓ Installed "${state.pluginTitle}".`
+                  : `⚠ ${state.result.message}`}
               </p>
               {state.result.installed_packages.length > 0 && (
                 <div>
@@ -989,7 +1225,7 @@ function BlockInstallModal({
               )}
               {state.result.success && (
                 <p className="text-xs text-forge-muted">
-                  The block is now available in the palette under <span className="text-forge-text font-medium">Plugins</span>.
+                  The plugin is now available in the palette under <span className="text-forge-text font-medium">Plugins</span>.
                 </p>
               )}
             </>

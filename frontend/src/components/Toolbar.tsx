@@ -9,6 +9,14 @@ import { SettingsModal } from "./SettingsModal";
 interface ToolbarProps {
   pipelineName: string;
   pipelineId: string | null;
+  customCategories: string[];
+  appUpdate:
+    | {
+        version: string;
+        action: "auto-install" | "open-installer" | "open-release-page";
+        isInstalling: boolean;
+      }
+    | null;
   isRunning: boolean;
   isStopping: boolean;
   isDirty: boolean;
@@ -27,11 +35,15 @@ interface ToolbarProps {
   onExportNotebook?: () => void;
   onDownloadTemplate?: () => void;
   onInstallBlock?: () => void;
+  onManagePlugins?: () => void;
+  onInstallAppUpdate?: () => void;
 }
 
 export function Toolbar({
   pipelineName,
   pipelineId,
+  customCategories,
+  appUpdate,
   isRunning,
   isStopping,
   isDirty,
@@ -50,6 +62,8 @@ export function Toolbar({
   onExportNotebook,
   onDownloadTemplate,
   onInstallBlock,
+  onManagePlugins,
+  onInstallAppUpdate,
 }: ToolbarProps) {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -96,6 +110,14 @@ export function Toolbar({
     await apiDeletePipeline(id);
     setPipelines((ps) => ps.filter((p) => p.id !== id));
   };
+
+  const updateTitle = appUpdate
+    ? appUpdate.action === "auto-install"
+      ? `Download and install Forge ${appUpdate.version}`
+      : appUpdate.action === "open-installer"
+        ? `Download the Forge ${appUpdate.version} installer`
+        : `Open the Forge ${appUpdate.version} release page`
+    : "";
 
   return (
     <>
@@ -205,46 +227,47 @@ export function Toolbar({
 
           <div
             className="
-              absolute right-0 top-full z-50 mt-1 min-w-44 overflow-hidden rounded-md
-              border border-forge-border bg-forge-surface shadow-2xl
+              absolute right-0 top-full z-50 min-w-44 pt-1
               opacity-0 pointer-events-none translate-y-1
               transition-all duration-150
               group-hover:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0
               group-focus-within:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0
             "
           >
-            <button
-              onClick={onExportPng}
-              disabled={isExporting}
-              className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors disabled:text-forge-muted disabled:hover:bg-transparent"
-              title="Export full-resolution PNG of the entire pipeline"
-            >
-              PNG
-            </button>
-            <button
-              onClick={onExportPdf}
-              disabled={isExporting}
-              className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors disabled:text-forge-muted disabled:hover:bg-transparent"
-              title="Export full-resolution PDF of the entire pipeline"
-            >
-              PDF
-            </button>
-            <button
-              onClick={onExportPython}
-              disabled={isExporting}
-              className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors disabled:text-forge-muted disabled:hover:bg-transparent"
-              title="Download a runnable Python export bundle"
-            >
-              Python Script
-            </button>
-            <button
-              onClick={onExportNotebook}
-              disabled={isExporting}
-              className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors disabled:text-forge-muted disabled:hover:bg-transparent"
-              title="Download a runnable Jupyter notebook export bundle"
-            >
-              Jupyter Notebook
-            </button>
+            <div className="overflow-hidden rounded-md border border-forge-border bg-forge-surface shadow-2xl">
+              <button
+                onClick={onExportPng}
+                disabled={isExporting}
+                className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors disabled:text-forge-muted disabled:hover:bg-transparent"
+                title="Export full-resolution PNG of the entire pipeline"
+              >
+                PNG
+              </button>
+              <button
+                onClick={onExportPdf}
+                disabled={isExporting}
+                className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors disabled:text-forge-muted disabled:hover:bg-transparent"
+                title="Export full-resolution PDF of the entire pipeline"
+              >
+                PDF
+              </button>
+              <button
+                onClick={onExportPython}
+                disabled={isExporting}
+                className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors disabled:text-forge-muted disabled:hover:bg-transparent"
+                title="Download a runnable Python export bundle"
+              >
+                Python Script
+              </button>
+              <button
+                onClick={onExportNotebook}
+                disabled={isExporting}
+                className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors disabled:text-forge-muted disabled:hover:bg-transparent"
+                title="Download a runnable Jupyter notebook export bundle"
+              >
+                Jupyter Notebook
+              </button>
+            </div>
           </div>
         </div>
 
@@ -260,40 +283,90 @@ export function Toolbar({
 
           <div
             className="
-              absolute right-0 top-full z-50 mt-1 min-w-52 overflow-hidden rounded-md
-              border border-forge-border bg-forge-surface shadow-2xl
+              absolute right-0 top-full z-50 min-w-52 pt-1
               opacity-0 pointer-events-none translate-y-1
               transition-all duration-150
               group-hover:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0
               group-focus-within:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0
             "
           >
-            <div className="px-3 py-2 border-b border-forge-border">
-              <p className="text-[10px] text-forge-muted font-medium uppercase tracking-wider">Block Plugins</p>
-            </div>
-            <button
-              onClick={onDownloadTemplate}
-              className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors flex items-center gap-2"
-              title="Download a template .py file showing how to build a custom block"
-            >
-              <span aria-hidden="true" className="text-forge-muted">↓</span>
-              Get Block Template
-            </button>
-            <button
-              onClick={onInstallBlock}
-              className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors flex items-center gap-2"
-              title="Pick a .py file to install as a custom block"
-            >
-              <span aria-hidden="true" className="text-forge-muted">+</span>
-              Install Block from File…
-            </button>
-            <div className="px-3 py-2 border-t border-forge-border">
-              <p className="text-[10px] text-forge-muted leading-relaxed">
-                Or drag a .py file onto the canvas to install.
-              </p>
+            <div className="overflow-hidden rounded-md border border-forge-border bg-forge-surface shadow-2xl">
+              <div className="px-3 py-2 border-b border-forge-border">
+                <p className="text-[10px] text-forge-muted font-medium uppercase tracking-wider">Block Plugins</p>
+              </div>
+              <button
+                onClick={onManagePlugins}
+                className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors flex items-center gap-2"
+                title="Open the installed plugin manager"
+              >
+                <span aria-hidden="true" className="text-forge-muted">☰</span>
+                Manage Plugins…
+              </button>
+              <button
+                onClick={onDownloadTemplate}
+                className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors flex items-center gap-2"
+                title="Download a template .py file showing how to build a custom plugin"
+              >
+                <span aria-hidden="true" className="text-forge-muted">↓</span>
+                Download Plugin Template
+              </button>
+              <button
+                onClick={onInstallBlock}
+                className="w-full px-3 py-2 text-left text-sm text-forge-text hover:bg-forge-bg/50 transition-colors flex items-center gap-2"
+                title="Pick a .py file to install as a custom block plugin"
+              >
+                <span aria-hidden="true" className="text-forge-muted">+</span>
+                Install Plugin from File…
+              </button>
+              <div className="px-3 py-2 border-t border-forge-border">
+                <p className="text-[10px] text-forge-muted leading-relaxed">
+                  Or drag a .py file onto the canvas to install.
+                </p>
+              </div>
             </div>
           </div>
         </div>
+
+        {appUpdate && (
+          <button
+            onClick={onInstallAppUpdate}
+            disabled={appUpdate.isInstalling}
+            className={`
+              inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-semibold
+              transition-[background-color,border-color,color,transform] duration-150
+              ${
+                appUpdate.isInstalling
+                  ? "cursor-progress border-[#6ee7b7]/30 bg-[#0f2f26] text-[#9cf3d0]"
+                  : "border-[#6ee7b7]/35 bg-[#12372d] text-[#8bf5cf] hover:bg-[#184438] hover:border-[#86efcc]/60 active:scale-[0.97]"
+              }
+            `}
+            title={updateTitle}
+            aria-label={updateTitle}
+          >
+            {appUpdate.isInstalling ? (
+              <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-[#9cf3d0]/40 border-t-[#9cf3d0] animate-spin" />
+            ) : (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 2.5v7" />
+                <path d="m5.4 7.8 2.6 2.7 2.6-2.7" />
+                <path d="M3 12.5h10" />
+              </svg>
+            )}
+            <span className="hidden lg:inline">
+              {appUpdate.isInstalling ? "Updating…" : `v${appUpdate.version}`}
+            </span>
+          </button>
+        )}
 
         {/* Settings gear */}
         <button
@@ -383,6 +456,7 @@ export function Toolbar({
       <SettingsModal
         open={showSettings}
         onClose={() => setShowSettings(false)}
+        customCategories={customCategories}
       />
     </>
   );

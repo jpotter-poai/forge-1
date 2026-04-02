@@ -1,5 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getMcpConfig, type McpConfigResponse } from "@/api/client";
+import {
+  CATEGORY_COLOR_OPTIONS,
+  CATEGORY_ICON_OPTIONS,
+  categoryColorOption,
+  getCategoryStyleOverrides,
+  resolveCategoryStyleFromOverrides,
+  saveCategoryStyleOverrides,
+  serializeCategoryStyleOverrides,
+  type CategoryStyleOverride,
+} from "@/utils/categoryStyles";
 
 function detectTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -8,6 +18,7 @@ function detectTauri(): boolean {
 interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
+  customCategories: string[];
 }
 
 interface WorkspaceConfig {
@@ -16,11 +27,20 @@ interface WorkspaceConfig {
   auto_update_packages: boolean;
 }
 
-export function SettingsModal({ open, onClose }: SettingsModalProps) {
+export function SettingsModal({
+  open,
+  onClose,
+  customCategories,
+}: SettingsModalProps) {
   const isTauri = detectTauri();
   const [config, setConfig] = useState<WorkspaceConfig | null>(null);
   const [workspaceDir, setWorkspaceDir] = useState("");
   const [autoUpdatePackages, setAutoUpdatePackages] = useState(false);
+  const [categoryOverrides, setCategoryOverrides] = useState<
+    Record<string, CategoryStyleOverride>
+  >({});
+  const [savedCategoryOverridesSnapshot, setSavedCategoryOverridesSnapshot] =
+    useState("{}");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -38,6 +58,11 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (!open) return;
     setLoading(true);
     setSaveMsg(null);
+    const savedOverrides = getCategoryStyleOverrides();
+    setCategoryOverrides(savedOverrides);
+    setSavedCategoryOverridesSnapshot(
+      serializeCategoryStyleOverrides(savedOverrides),
+    );
 
     if (isTauri) {
       import("@tauri-apps/api/core").then(({ invoke }) => {
@@ -50,6 +75,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           .catch(() => {
             setConfig(null);
             setWorkspaceDir("");
+            setAutoUpdatePackages(false);
           })
           .finally(() => setLoading(false));
       });
@@ -80,6 +106,14 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
+  const sortedCustomCategories = useMemo(
+    () =>
+      [...new Set(customCategories)].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" }),
+      ),
+    [customCategories],
+  );
+
   if (!open) return null;
 
   const handleBrowse = async () => {
@@ -102,18 +136,28 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   };
 
   const handleSave = async () => {
-    if (!isTauri) return;
     setSaving(true);
     setSaveMsg(null);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("save_settings", {
-        config: {
+      if (isTauri) {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("save_settings", {
+          config: {
+            workspace_dir: workspaceDir,
+            setup_complete: true,
+            auto_update_packages: autoUpdatePackages,
+          },
+        });
+        setConfig({
           workspace_dir: workspaceDir,
           setup_complete: true,
           auto_update_packages: autoUpdatePackages,
-        },
-      });
+        });
+      }
+      saveCategoryStyleOverrides(categoryOverrides);
+      setSavedCategoryOverridesSnapshot(
+        serializeCategoryStyleOverrides(categoryOverrides),
+      );
       setSaveMsg("Settings saved");
       setTimeout(() => setSaveMsg(null), 3000);
     } catch (err) {
@@ -131,6 +175,10 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
       setWorkspaceDir(config.workspace_dir);
       setAutoUpdatePackages(config.auto_update_packages ?? false);
     }
+    setCategoryOverrides(getCategoryStyleOverrides());
+    setSavedCategoryOverridesSnapshot(
+      serializeCategoryStyleOverrides(getCategoryStyleOverrides()),
+    );
     setSaveMsg(null);
     onClose();
   };
@@ -193,20 +241,55 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
 
   const hasChanges = config
     ? workspaceDir !== config.workspace_dir ||
-      autoUpdatePackages !== (config.auto_update_packages ?? false)
-    : false;
+      autoUpdatePackages !== (config.auto_update_packages ?? false) ||
+      serializeCategoryStyleOverrides(categoryOverrides) !==
+        savedCategoryOverridesSnapshot
+    : serializeCategoryStyleOverrides(categoryOverrides) !==
+        savedCategoryOverridesSnapshot;
+
+  const updateCategoryOverride = (
+    category: string,
+    updater: (current: CategoryStyleOverride | undefined) => CategoryStyleOverride,
+  ) => {
+    setCategoryOverrides((current) => ({
+      ...current,
+      [category]: updater(current[category]),
+    }));
+  };
+
+  const handleCategoryIconChange = (category: string, icon: string) => {
+    updateCategoryOverride(category, (current) => ({
+      ...current,
+      icon,
+    }));
+  };
+
+  const handleCategoryColorChange = (category: string, colorKey: string) => {
+    updateCategoryOverride(category, (current) => ({
+      ...current,
+      colorKey,
+    }));
+  };
+
+  const handleResetCategory = (category: string) => {
+    setCategoryOverrides((current) => {
+      const next = { ...current };
+      delete next[category];
+      return next;
+    });
+  };
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Settings"
-      className="fixed inset-0 z-40 flex items-start justify-center pt-20 bg-black/60 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-40 flex items-start justify-center bg-black/60 px-4 py-4 backdrop-blur-sm animate-fade-in sm:px-6 sm:py-8"
       onClick={(e) => {
         if (e.target === e.currentTarget) handleCancel();
       }}
     >
-      <div className="w-full max-w-lg bg-forge-surface border border-forge-border rounded-lg shadow-2xl overflow-hidden animate-fade-in-scale">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-forge-border bg-forge-surface shadow-2xl animate-fade-in-scale sm:max-h-[calc(100vh-4rem)]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-forge-border">
           <h2 className="text-forge-text font-semibold text-sm">Settings</h2>
@@ -227,96 +310,230 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         </div>
 
         {/* Content */}
-        <div className="px-5 py-5 space-y-5">
+        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
           {loading ? (
             <p className="text-forge-muted text-sm text-center py-8 animate-pulse">
               Loading settings...
             </p>
-          ) : !isTauri ? (
-            <p className="text-forge-muted text-sm text-center py-8">
-              Settings are only available in the desktop app.
-            </p>
           ) : (
             <>
-              {/* Workspace Directory */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-forge-text">
-                  Workspace Directory
-                </label>
-                <p className="text-xs text-forge-muted">
-                  Where Forge stores pipelines, datasets, and outputs.
-                </p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={workspaceDir}
-                    onChange={(e) => setWorkspaceDir(e.target.value)}
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    className="flex-1 rounded border border-forge-border bg-forge-bg px-3 py-2 text-sm text-forge-text focus:border-forge-accent focus:outline-none font-mono"
-                    placeholder="/path/to/workspace"
-                  />
-                  <button
-                    onClick={() => { void handleBrowse(); }}
-                    className="px-3 py-2 rounded text-sm text-forge-text bg-forge-border/40 hover:bg-forge-border/60 transition-colors flex-shrink-0"
-                  >
-                    Browse
-                  </button>
-                </div>
-              </div>
-
-              {/* Info section */}
-              <div className="rounded border border-forge-border/50 bg-forge-bg/50 px-4 py-3 space-y-1">
-                <p className="text-xs text-forge-muted">
-                  <span className="text-forge-text font-medium">Pipelines:</span>{" "}
-                  {workspaceDir ? `${workspaceDir}/pipelines` : "---"}
-                </p>
-                <p className="text-xs text-forge-muted">
-                  <span className="text-forge-text font-medium">Datasets:</span>{" "}
-                  {workspaceDir ? `${workspaceDir}/datasets` : "---"}
-                </p>
-                <p className="text-xs text-forge-muted">
-                  <span className="text-forge-text font-medium">Outputs:</span>{" "}
-                  {workspaceDir ? `${workspaceDir}/outputs` : "---"}
-                </p>
-              </div>
-
-              {/* Package Updates */}
-              <div className="space-y-3">
-                <label className="block text-sm font-medium text-forge-text">
-                  Package Updates
-                </label>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-forge-text">Auto-update on boot</p>
+              {isTauri ? (
+                <>
+                  {/* Workspace Directory */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-forge-text">
+                      Workspace Directory
+                    </label>
                     <p className="text-xs text-forge-muted">
-                      When enabled, Forge updates all packages every time it starts.
-                      Disabled by default for faster startup.
+                      Where Forge stores pipelines, datasets, and outputs.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={workspaceDir}
+                        onChange={(e) => setWorkspaceDir(e.target.value)}
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        className="flex-1 rounded border border-forge-border bg-forge-bg px-3 py-2 text-sm text-forge-text focus:border-forge-accent focus:outline-none font-mono"
+                        placeholder="/path/to/workspace"
+                      />
+                      <button
+                        onClick={() => { void handleBrowse(); }}
+                        className="px-3 py-2 rounded text-sm text-forge-text bg-forge-border/40 hover:bg-forge-border/60 transition-colors flex-shrink-0"
+                      >
+                        Browse
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Info section */}
+                  <div className="rounded border border-forge-border/50 bg-forge-bg/50 px-4 py-3 space-y-1">
+                    <p className="text-xs text-forge-muted">
+                      <span className="text-forge-text font-medium">Pipelines:</span>{" "}
+                      {workspaceDir ? `${workspaceDir}/pipelines` : "---"}
+                    </p>
+                    <p className="text-xs text-forge-muted">
+                      <span className="text-forge-text font-medium">Datasets:</span>{" "}
+                      {workspaceDir ? `${workspaceDir}/datasets` : "---"}
+                    </p>
+                    <p className="text-xs text-forge-muted">
+                      <span className="text-forge-text font-medium">Outputs:</span>{" "}
+                      {workspaceDir ? `${workspaceDir}/outputs` : "---"}
                     </p>
                   </div>
-                  <button
-                    role="switch"
-                    aria-checked={autoUpdatePackages}
-                    onClick={() => setAutoUpdatePackages((v) => !v)}
-                    className={`ml-4 flex-shrink-0 w-8 h-4 rounded-full transition-colors flex items-center ${
-                      autoUpdatePackages ? "bg-forge-accent" : "bg-forge-border"
-                    }`}
-                  >
-                    <div
-                      className={`w-3 h-3 rounded-full bg-white transition-transform ${
-                        autoUpdatePackages ? "translate-x-4" : "translate-x-0.5"
-                      }`}
-                    />
-                  </button>
-                </div>
-                <button
-                  onClick={() => { void handleUpdatePackages(); }}
-                  disabled={updating}
-                  className="w-full px-3 py-2 rounded text-sm text-forge-text bg-forge-border/40 hover:bg-forge-border/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {updating ? "Updating packages..." : "Check for package updates"}
-                </button>
+
+                  {/* Python Dependency Updates */}
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-forge-text">
+                      Python Dependencies
+                    </label>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-forge-text">Auto-update dependencies on boot</p>
+                        <p className="text-xs text-forge-muted">
+                          Forge itself updates automatically when the app build changes.
+                          Enable this only if you also want third-party Python packages
+                          like scipy or scikit-learn refreshed on every boot.
+                        </p>
+                      </div>
+                      <button
+                        role="switch"
+                        aria-checked={autoUpdatePackages}
+                        onClick={() => setAutoUpdatePackages((v) => !v)}
+                        className={`ml-4 flex-shrink-0 w-8 h-4 rounded-full transition-colors flex items-center ${
+                          autoUpdatePackages ? "bg-forge-accent" : "bg-forge-border"
+                        }`}
+                      >
+                        <div
+                          className={`w-3 h-3 rounded-full bg-white transition-transform ${
+                            autoUpdatePackages ? "translate-x-4" : "translate-x-0.5"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => { void handleUpdatePackages(); }}
+                      disabled={updating}
+                      className="w-full px-3 py-2 rounded text-sm text-forge-text bg-forge-border/40 hover:bg-forge-border/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {updating ? "Updating dependencies..." : "Check for dependency updates"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-forge-muted text-sm text-center py-2">
+                  Desktop-only settings are unavailable in browser mode.
+                </p>
+              )}
+
+              <div className="border-t border-forge-border/50" />
+
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-forge-text">
+                  Custom Categories
+                </label>
+                <p className="text-xs text-forge-muted">
+                  Pick the symbol and accent color Forge uses for plugin-defined categories.
+                </p>
+                {sortedCustomCategories.length === 0 ? (
+                  <div className="rounded border border-forge-border/50 bg-forge-bg/50 px-4 py-3">
+                    <p className="text-xs text-forge-muted">
+                      No plugin-defined categories are loaded right now.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {sortedCustomCategories.map((category) => {
+                      const preview = resolveCategoryStyleFromOverrides(
+                        category,
+                        categoryOverrides,
+                      );
+                      const selectedColor =
+                        categoryColorOption(preview.colorKey) ??
+                        CATEGORY_COLOR_OPTIONS[0];
+                      const hasOverride = Boolean(
+                        categoryOverrides[category]?.icon?.trim() ||
+                          categoryOverrides[category]?.colorKey,
+                      );
+
+                      return (
+                        <div
+                          key={category}
+                          className="rounded border border-forge-border/50 bg-forge-bg/50 px-4 py-3 space-y-3"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-forge-text">
+                                {category}
+                              </p>
+                              <p className="text-[11px] text-forge-muted">
+                                Preview
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${preview.badgeClass}`}
+                              >
+                                <span aria-hidden="true">{preview.icon}</span>
+                                {category}
+                              </span>
+                              <button
+                                onClick={() => handleResetCategory(category)}
+                                disabled={!hasOverride}
+                                className="btn-ghost text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Reset
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="block text-[11px] font-medium uppercase tracking-wider text-forge-muted">
+                              Symbol
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={categoryOverrides[category]?.icon ?? ""}
+                                onChange={(e) =>
+                                  handleCategoryIconChange(category, e.target.value)
+                                }
+                                maxLength={2}
+                                className="w-14 rounded border border-forge-border bg-forge-surface px-2 py-1.5 text-center text-sm text-forge-text focus:border-forge-accent focus:outline-none"
+                                aria-label={`${category} symbol`}
+                              />
+                              <div className="flex flex-wrap gap-1.5">
+                                {CATEGORY_ICON_OPTIONS.map((icon) => (
+                                  <button
+                                    key={`${category}-${icon}`}
+                                    onClick={() => handleCategoryIconChange(category, icon)}
+                                    className={`h-8 w-8 rounded border text-sm transition-colors ${
+                                      (categoryOverrides[category]?.icon ?? preview.icon) ===
+                                      icon
+                                        ? "border-forge-accent bg-forge-accent/15 text-forge-text"
+                                        : "border-forge-border bg-forge-surface text-forge-muted hover:text-forge-text hover:border-forge-border-mid"
+                                    }`}
+                                    title={`Use ${icon}`}
+                                  >
+                                    {icon}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="block text-[11px] font-medium uppercase tracking-wider text-forge-muted">
+                              Color
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              {CATEGORY_COLOR_OPTIONS.map((option) => (
+                                <button
+                                  key={`${category}-${option.key}`}
+                                  onClick={() =>
+                                    handleCategoryColorChange(category, option.key)
+                                  }
+                                  className={`flex items-center gap-2 rounded border px-2 py-1.5 text-xs transition-colors ${
+                                    selectedColor.key === option.key
+                                      ? "border-forge-accent bg-forge-accent/10 text-forge-text"
+                                      : "border-forge-border bg-forge-surface text-forge-muted hover:text-forge-text hover:border-forge-border-mid"
+                                  }`}
+                                  title={option.label}
+                                >
+                                  <span
+                                    className={`inline-block h-3 w-3 rounded-full ${option.swatchClass}`}
+                                  />
+                                  {option.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -383,7 +600,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         </div>
 
         {/* Footer */}
-        {!loading && isTauri && (
+        {!loading && (
           <div className="flex items-center justify-between border-t border-forge-border px-5 py-3">
             <div className="min-h-[20px]">
               {saveMsg && (

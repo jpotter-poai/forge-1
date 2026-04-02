@@ -156,23 +156,23 @@ def _parse_key_token_to_int(token: str, prefix: str, token_name: str) -> int:
 def _parse_matrix_column_key(
     column: Any,
     separator: str,
-    treatment_prefix: str,
-    dose_prefix: str,
+    group_prefix: str,
+    step_prefix: str,
 ) -> tuple[str, int]:
     text = str(column)
     if separator not in text:
         raise ValueError(f"column '{text}' is missing separator '{separator}'.")
-    leading_part, dose_part = text.split(separator, 1)
-    leading_key = _parse_key_token_to_str(leading_part, treatment_prefix, "treatment")
-    dose_id = _parse_key_token_to_int(dose_part, dose_prefix, "dose")
-    return leading_key, dose_id
+    leading_part, step_part = text.split(separator, 1)
+    group_key = _parse_key_token_to_str(leading_part, group_prefix, "group")
+    step_id = _parse_key_token_to_int(step_part, step_prefix, "step")
+    return group_key, step_id
 
 
 def _validate_matrix_column_keys(
     columns: list[Any],
     separator: str,
-    treatment_prefix: str,
-    dose_prefix: str,
+    group_prefix: str,
+    step_prefix: str,
     max_errors: int = 5,
 ) -> None:
     if not columns:
@@ -180,50 +180,50 @@ def _validate_matrix_column_keys(
     errors: list[str] = []
     for col in columns:
         try:
-            _parse_matrix_column_key(col, separator, treatment_prefix, dose_prefix)
+            _parse_matrix_column_key(col, separator, group_prefix, step_prefix)
         except Exception as exc:
             errors.append(str(exc))
             if len(errors) >= max_errors:
                 break
     if errors:
-        expected = f"<{treatment_prefix}treatment>{separator}{dose_prefix}<dose>"
+        expected = f"<{group_prefix}group>{separator}{step_prefix}<step>"
         joined = "; ".join(errors)
         raise ValueError(f"{joined}. Expected format: {expected}.")
 
 
-def _make_curve_block_holdout_mask(
+def _make_group_block_holdout_mask(
     M_df: pd.DataFrame,
     holdout_frac: float,
     seed: int = 0,
-    separator: str = "__D",
-    treatment_prefix: str = "",
-    dose_prefix: str = "",
+    separator: str = "__",
+    group_prefix: str = "",
+    step_prefix: str = "Step",
 ) -> np.ndarray:
     """
     Generates a holdout mask such that for each row, a fraction of the
-    observed treatments (where treatments are defined by column name parsing)
-    are held out entirely (all doses for those treatments).
+    observed groups (where groups are defined by column name parsing)
+    are held out entirely (all steps for those groups).
 
-    This simulates the scenario of predicting responses for new treatments not seen during training.
-    The column names of M_df are expected to encode treatment and dose information in a consistent
+    This simulates the scenario of predicting values for new groups not seen during training.
+    The column names of M_df are expected to encode group and step information in a consistent
     format that can be parsed by _parse_matrix_column_key.
 
-    The holdout_frac parameter controls the fraction of observed treatments to hold out for each row,
+    The holdout_frac parameter controls the fraction of observed groups to hold out for each row,
     and the seed parameter ensures reproducibility of the random selection.
     """
     rng = np.random.default_rng(seed)
     cols = list(M_df.columns)
-    col_treat: list[str] = []
+    col_group: list[str] = []
     for col in cols:
-        t_name, _ = _parse_matrix_column_key(
-            col, separator, treatment_prefix, dose_prefix
+        group_name, _ = _parse_matrix_column_key(
+            col, separator, group_prefix, step_prefix
         )
-        col_treat.append(t_name)
-    col_treat_arr = np.array(col_treat, dtype=str)
+        col_group.append(group_name)
+    col_group_arr = np.array(col_group, dtype=str)
 
-    treat_to_colidx: dict[str, list[int]] = {}
-    for j, t_name in enumerate(col_treat_arr):
-        treat_to_colidx.setdefault(t_name, []).append(j)
+    group_to_colidx: dict[str, list[int]] = {}
+    for j, group_name in enumerate(col_group_arr):
+        group_to_colidx.setdefault(group_name, []).append(j)
 
     values = M_df.to_numpy(dtype=float)
     n_rows, n_cols = values.shape
@@ -232,13 +232,13 @@ def _make_curve_block_holdout_mask(
         observed_cols = np.where(np.isfinite(values[i, :]))[0]
         if observed_cols.size == 0:
             continue
-        observed_treatments = np.unique(col_treat_arr[observed_cols])
-        n_hold = int(np.ceil(float(holdout_frac) * len(observed_treatments)))
+        observed_groups = np.unique(col_group_arr[observed_cols])
+        n_hold = int(np.ceil(float(holdout_frac) * len(observed_groups)))
         if n_hold <= 0:
             continue
-        held_treatments = rng.choice(observed_treatments, size=n_hold, replace=False)
-        for t_name in held_treatments:
-            idxs = np.array(treat_to_colidx.get(t_name, []), dtype=int)
+        held_groups = rng.choice(observed_groups, size=n_hold, replace=False)
+        for group_name in held_groups:
+            idxs = np.array(group_to_colidx.get(group_name, []), dtype=int)
             if idxs.size == 0:
                 continue
             holdout[i, idxs] = np.isfinite(values[i, idxs])
@@ -392,7 +392,7 @@ def _extract_scalar_from_frame(
     if frame.shape[0] == 1 and frame.shape[1] == 1:
         return frame.iloc[0, 0]
 
-    non_null = frame.stack(dropna=True)
+    non_null = frame.stack(dropna=True)  # pyright: ignore[reportCallIssue]
     if not non_null.empty:
         return non_null.iloc[0]
 
@@ -453,7 +453,7 @@ class WeightedALSFactorization(BaseBlock):
 
 class NuisanceALSSweep(BaseBlock):
     name = "Nuisance ALS Sweep"
-    version = "1.0.0"
+    version = "1.1.0"
     category = "Factorization"
     description = "Sweep k/lambda for nuisance+bias+weighted ALS and evaluate weighted RMSE on generated holdout masks."
     param_descriptions = {
@@ -465,11 +465,11 @@ class NuisanceALSSweep(BaseBlock):
         "sample_rows": "Optional row subsample size for a faster sweep; null means use all rows.",
         "bias_weight_mode": "Bias fitting weights: 'binary' uses observed mask, 'qc' uses provided QC weights.",
         "seed_base": "Base random seed used to derive deterministic per-repeat seeds.",
-        "column_separator": "Delimiter between treatment and dose in matrix column keys (for example '__').",
-        "treatment_prefix": "Optional prefix before treatment token in column keys (for example 'D').",
-        "dose_prefix": "Optional prefix before dose token in column keys (for example 'D').",
+        "column_separator": "Delimiter between group and step tokens in matrix column keys (for example '__').",
+        "group_prefix": "Optional prefix before the group token in column keys.",
+        "step_prefix": "Optional prefix before the numeric step token in column keys (for example 'Step').",
         "validate_column_keys": "Validate matrix columns match the configured key schema before sweep starts.",
-        "holdout_strategy": "Holdout generator: curve_block or random_entry.",
+        "holdout_strategy": "Holdout generator: group_block or random_entry.",
     }
     n_inputs = 2
     input_labels = ["Matrix", "Weights"]
@@ -484,11 +484,11 @@ class NuisanceALSSweep(BaseBlock):
         sample_rows: int | None = None
         bias_weight_mode: str = "binary"
         seed_base: int = 100000
-        column_separator: str = "__D"
-        treatment_prefix: str = ""
-        dose_prefix: str = ""
+        column_separator: str = "__"
+        group_prefix: str = ""
+        step_prefix: str = "Step"
         validate_column_keys: bool = True
-        holdout_strategy: str = "curve_block"
+        holdout_strategy: str = "group_block"
 
     def execute(
         self, data: list[pd.DataFrame], params: Params | None = None
@@ -534,20 +534,20 @@ class NuisanceALSSweep(BaseBlock):
         seed_base = int(getattr(params, "seed_base", 100000))
         n_iters = int(getattr(params, "n_iters", 15))
         bias_weight_mode = str(getattr(params, "bias_weight_mode", "binary"))
-        column_separator = str(getattr(params, "column_separator", "__D"))
-        treatment_prefix = str(getattr(params, "treatment_prefix", "") or "")
-        dose_prefix = str(getattr(params, "dose_prefix", "") or "")
+        column_separator = str(getattr(params, "column_separator", "__"))
+        group_prefix = str(getattr(params, "group_prefix", "") or "")
+        step_prefix = str(getattr(params, "step_prefix", "Step") or "")
         validate_column_keys = bool(getattr(params, "validate_column_keys", True))
         holdout_strategy = (
-            str(getattr(params, "holdout_strategy", "curve_block")).strip().lower()
+            str(getattr(params, "holdout_strategy", "group_block")).strip().lower()
         )
-        if validate_column_keys and holdout_strategy in {"curve_block"}:
+        if validate_column_keys and holdout_strategy in {"group_block", "curve_block"}:
             try:
                 _validate_matrix_column_keys(
                     list(M_df.columns),
                     separator=column_separator,
-                    treatment_prefix=treatment_prefix,
-                    dose_prefix=dose_prefix,
+                    group_prefix=group_prefix,
+                    step_prefix=step_prefix,
                 )
             except Exception as exc:
                 raise BlockValidationError(
@@ -571,14 +571,14 @@ class NuisanceALSSweep(BaseBlock):
             bucket = metrics.setdefault(key, {"train": [], "holdout": []})
             seed = seed_base + repeat + 1000 * (k + int(round(1000 * lam)))
 
-            if holdout_strategy == "curve_block":
-                holdout_mask = _make_curve_block_holdout_mask(
+            if holdout_strategy in {"group_block", "curve_block"}:
+                holdout_mask = _make_group_block_holdout_mask(
                     M_df,
                     holdout_frac=holdout_frac,
                     seed=seed,
                     separator=column_separator,
-                    treatment_prefix=treatment_prefix,
-                    dose_prefix=dose_prefix,
+                    group_prefix=group_prefix,
+                    step_prefix=step_prefix,
                 )
             elif holdout_strategy == "random_entry":
                 holdout_mask = _make_random_entry_holdout_mask(
@@ -588,7 +588,7 @@ class NuisanceALSSweep(BaseBlock):
                 )
             else:
                 raise BlockValidationError(
-                    "holdout_strategy must be one of: curve_block, random_entry."
+                    "holdout_strategy must be one of: group_block, random_entry."
                 )
 
             W_train = W.copy()
@@ -628,8 +628,8 @@ class NuisanceALSSweep(BaseBlock):
                         "sample_rows": int(M_df.shape[0]),
                         "bias_weight_mode": bias_weight_mode,
                         "column_separator": column_separator,
-                        "treatment_prefix": treatment_prefix,
-                        "dose_prefix": dose_prefix,
+                        "group_prefix": group_prefix,
+                        "step_prefix": step_prefix,
                         "rmse_train_mean": float(np.nanmean(rmse_train)),
                         "rmse_holdout_mean": float(np.nanmean(rmse_holdout)),
                         "rmse_train_std": float(np.nanstd(rmse_train)),
@@ -643,7 +643,9 @@ class NuisanceALSSweep(BaseBlock):
             .reset_index(drop=True)
         )
         best = result.iloc[0]
-        holdout_strategy_out = str(getattr(params, "holdout_strategy", "curve_block"))
+        holdout_strategy_out = (
+            "group_block" if holdout_strategy == "curve_block" else holdout_strategy
+        )
         return BlockOutput(
             data=result,
             metadata={
@@ -652,9 +654,9 @@ class NuisanceALSSweep(BaseBlock):
                 "best_rmse_holdout_mean": float(best["rmse_holdout_mean"]),
                 "best_rmse_train_mean": float(best["rmse_train_mean"]),
                 "holdout_strategy": holdout_strategy_out,
-                "column_separator": str(getattr(params, "column_separator", "__D")),
-                "treatment_prefix": str(getattr(params, "treatment_prefix", "") or ""),
-                "dose_prefix": str(getattr(params, "dose_prefix", "") or ""),
+                "column_separator": column_separator,
+                "group_prefix": group_prefix,
+                "step_prefix": step_prefix,
             },
         )
 

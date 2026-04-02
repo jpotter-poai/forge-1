@@ -1,6 +1,5 @@
-use crate::python::{
-    self, BackendState, BackendStatus,
-};
+use crate::python::{self, BackendState, BackendStatus};
+use crate::updater;
 use crate::workspace;
 use std::path::PathBuf;
 use tauri::{Emitter, Manager, State};
@@ -14,8 +13,7 @@ pub fn get_backend_status(state: State<BackendState>) -> BackendStatus {
 /// Check if Python 3.12+ is available on the system.
 #[tauri::command]
 pub fn check_python() -> Result<String, String> {
-    python::find_system_python()
-        .ok_or_else(|| "Python 3.12+ not found on your system".to_string())
+    python::find_system_python().ok_or_else(|| "Python 3.12+ not found on your system".to_string())
 }
 
 /// Check if the managed venv already exists.
@@ -72,12 +70,10 @@ pub async fn setup_and_start(
     }
 
     // Step 1: Find Python
-    let system_python = tokio::task::spawn_blocking(|| {
-        python::find_system_python()
-    })
-    .await
-    .map_err(|e| format!("Task failed: {e}"))?
-    .ok_or("Python 3.12+ not found. Please install Python from python.org.")?;
+    let system_python = tokio::task::spawn_blocking(|| python::find_system_python())
+        .await
+        .map_err(|e| format!("Task failed: {e}"))?
+        .ok_or("Python 3.12+ not found. Please install Python from python.org.")?;
 
     // Step 2: Create venv if needed
     let venv_is_new = !python::venv_exists();
@@ -92,22 +88,35 @@ pub async fn setup_and_start(
         tokio::task::yield_now().await;
 
         let py = system_python.clone();
-        tokio::task::spawn_blocking(move || {
-            python::create_venv(&py)
-        })
-        .await
-        .map_err(|e| format!("Task failed: {e}"))??;
+        tokio::task::spawn_blocking(move || python::create_venv(&py))
+            .await
+            .map_err(|e| format!("Task failed: {e}"))??;
     }
 
-    // Step 3: Install/update Forge
-    // Always install on a fresh venv; otherwise respect the auto_update_packages setting.
-    let auto_update = workspace::load_config()
+    // Step 3: Sync the managed Forge install.
+    // Forge itself is refreshed automatically when the bundled package changes.
+    // Third-party Python dependencies only refresh automatically on fresh venvs,
+    // when their manifest changes, or when auto_update_packages is enabled.
+    let auto_update_dependencies = workspace::load_config()
         .map(|c| c.auto_update_packages)
         .unwrap_or(false);
 
     let forge_root = resolve_forge_root(&app)?;
+    let current_install_state = tokio::task::spawn_blocking({
+        let root_clone = forge_root.clone();
+        move || python::bundled_install_state(&root_clone)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))??;
+    let installed_state = python::load_install_state();
+    let sync_plan = python::determine_install_sync(
+        &current_install_state,
+        installed_state.as_ref(),
+        venv_is_new,
+        auto_update_dependencies,
+    );
 
-    if venv_is_new || auto_update {
+    if sync_plan.needs_work() {
         {
             let mut status = state.status.lock().unwrap();
             *status = BackendStatus::InstallingDeps;
@@ -116,13 +125,13 @@ pub async fn setup_and_start(
         tokio::task::yield_now().await;
 
         let root_clone = forge_root.clone();
-        tokio::task::spawn_blocking(move || {
-            python::install_forge(&root_clone)
-        })
-        .await
-        .map_err(|e| format!("Task failed: {e}"))??;
+        let plan_clone = sync_plan.clone();
+        tokio::task::spawn_blocking(move || python::sync_forge_install(&root_clone, &plan_clone))
+            .await
+            .map_err(|e| format!("Task failed: {e}"))??;
+        python::save_install_state(&current_install_state)?;
     } else {
-        log::info!("[setup] Skipping package update (auto_update_packages is disabled)");
+        log::info!("[setup] Forge package and dependency sync not needed");
     }
 
     // Ensure .env exists in the data dir (for production backend cwd)
@@ -167,8 +176,8 @@ pub async fn setup_and_start(
 fn resolve_forge_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // In development, walk up from the executable to find pyproject.toml
     if cfg!(debug_assertions) {
-        let mut dir = std::env::current_dir()
-            .map_err(|e| format!("Could not get working directory: {e}"))?;
+        let mut dir =
+            std::env::current_dir().map_err(|e| format!("Could not get working directory: {e}"))?;
 
         // Walk up looking for pyproject.toml
         loop {
@@ -182,7 +191,8 @@ fn resolve_forge_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
 
     // Fallback: try the resource directory (production build)
-    let resource_dir = app.path()
+    let resource_dir = app
+        .path()
         .resource_dir()
         .map_err(|e| format!("Could not resolve resource dir: {e}"))?;
 
@@ -264,11 +274,9 @@ pub async fn initialize_workspace(
 
     let root_clone = forge_root.clone();
     let dir_clone = workspace_dir.clone();
-    tokio::task::spawn_blocking(move || {
-        workspace::initialize_workspace(&dir_clone, &root_clone)
-    })
-    .await
-    .map_err(|e| format!("Task failed: {e}"))??;
+    tokio::task::spawn_blocking(move || workspace::initialize_workspace(&dir_clone, &root_clone))
+        .await
+        .map_err(|e| format!("Task failed: {e}"))??;
 
     // Write .env pointing at the workspace
     workspace::write_env_file(&forge_root, &workspace_dir)?;
@@ -288,21 +296,52 @@ pub async fn initialize_workspace(
 /// Return the path to the log file so the UI can show it in error messages.
 #[tauri::command]
 pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
-    let log_dir = app.path().app_log_dir()
+    let log_dir = app
+        .path()
+        .app_log_dir()
         .map_err(|e| format!("Could not resolve log dir: {e}"))?;
     let log_file = log_dir.join("forge.log");
     Ok(log_file.to_string_lossy().to_string())
 }
 
-/// Manually trigger a package update (install/upgrade all Forge dependencies).
-/// This runs the same install_forge step as the auto-update path.
+/// Manually trigger a dependency update for the managed venv.
+/// This also repairs the installed Forge package if the bundled copy is newer.
 #[tauri::command]
 pub async fn update_packages(app: tauri::AppHandle) -> Result<(), String> {
     log::info!("[update_packages] Manual package update requested");
     let forge_root = resolve_forge_root(&app)?;
-    tokio::task::spawn_blocking(move || {
-        python::install_forge(&forge_root)
+    let current_install_state = tokio::task::spawn_blocking({
+        let root_clone = forge_root.clone();
+        move || python::bundled_install_state(&root_clone)
     })
     .await
-    .map_err(|e| format!("Task failed: {e}"))?
+    .map_err(|e| format!("Task failed: {e}"))??;
+    let installed_state = python::load_install_state();
+    let mut sync_plan = python::determine_install_sync(
+        &current_install_state,
+        installed_state.as_ref(),
+        false,
+        false,
+    );
+    sync_plan.refresh_dependencies = true;
+
+    let root_clone = forge_root.clone();
+    let plan_clone = sync_plan.clone();
+    tokio::task::spawn_blocking(move || python::sync_forge_install(&root_clone, &plan_clone))
+        .await
+        .map_err(|e| format!("Task failed: {e}"))??;
+    python::save_install_state(&current_install_state)?;
+    Ok(())
+}
+
+/// Check GitHub Releases for a newer Forge desktop build.
+#[tauri::command]
+pub async fn check_app_update() -> Result<Option<updater::AppUpdateInfo>, String> {
+    updater::check_app_update().await
+}
+
+/// Download and launch the latest compatible Forge desktop installer.
+#[tauri::command]
+pub async fn install_app_update() -> Result<updater::InstallAppUpdateResult, String> {
+    updater::install_app_update().await
 }

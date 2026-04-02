@@ -237,6 +237,172 @@ export interface CustomBlockEntry {
   stem: string;
   path: string;
   requirements: string[];
+  title: string;
+  description: string;
+  blocks: Array<{
+    key: string;
+    name: string;
+    category: string;
+    version: string;
+  }>;
+}
+
+export interface PluginMetadata {
+  title: string;
+  description: string;
+}
+
+interface RawCustomBlockEntry {
+  filename?: unknown;
+  stem?: unknown;
+  path?: unknown;
+  requirements?: unknown;
+  title?: unknown;
+  description?: unknown;
+  blocks?: unknown;
+}
+
+function humanizePluginTitle(stem: string): string {
+  const parts = stem.split(/[\s_-]+/).filter(Boolean);
+  if (parts.length === 0) return "Custom Plugin";
+  return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+}
+
+function defaultPluginDescription(filename: string): string {
+  return `Custom block plugin installed from ${filename}.`;
+}
+
+function parseSimplePythonStringAssignment(source: string, key: string): string | null {
+  const line = source
+    .split(/\r?\n/)
+    .find((entry) => new RegExp(`^\\s*${key}\\s*=`).test(entry));
+  if (!line) {
+    return null;
+  }
+  const match = line.match(/=\s*(["'])(.*)\1\s*$/);
+  if (!match?.[2]) {
+    return null;
+  }
+
+  return match[2]
+    .replace(/\\\\/g, "\\")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'");
+}
+
+function parsePluginMetadataDictValue(
+  source: string,
+  field: "title" | "description",
+): string | null {
+  const metadataMatch = source.match(/PLUGIN_METADATA\s*=\s*\{([\s\S]*?)\}/m);
+  if (!metadataMatch?.[1]) {
+    return null;
+  }
+  const fieldPattern = new RegExp(
+    `["']${field}["']\\s*:\\s*(["'])(.*?)\\1`,
+    "m",
+  );
+  const match = metadataMatch[1].match(fieldPattern);
+  return match?.[2]?.trim() || null;
+}
+
+export function extractPluginMetadataFromSource(
+  source: string,
+  filename: string,
+): PluginMetadata {
+  const stem = filename.replace(/\.py$/i, "");
+  const title =
+    parseSimplePythonStringAssignment(source, "PLUGIN_TITLE") ||
+    parsePluginMetadataDictValue(source, "title") ||
+    humanizePluginTitle(stem);
+  const description =
+    parseSimplePythonStringAssignment(source, "PLUGIN_DESCRIPTION") ||
+    parsePluginMetadataDictValue(source, "description") ||
+    defaultPluginDescription(filename);
+
+  return {
+    title,
+    description,
+  };
+}
+
+function templateHasPluginMetadata(source: string): boolean {
+  return (
+    /\bPLUGIN_TITLE\s*=/.test(source) ||
+    /\bPLUGIN_DESCRIPTION\s*=/.test(source) ||
+    /\bPLUGIN_METADATA\s*=/.test(source)
+  );
+}
+
+function ensureTemplatePluginMetadata(source: string, blockName: string): string {
+  if (templateHasPluginMetadata(source)) {
+    return source;
+  }
+
+  const metadataSnippet =
+    "\n# Optional plugin metadata shown in the Manage Plugins window.\n" +
+    `PLUGIN_TITLE = ${JSON.stringify(blockName)}\n` +
+    'PLUGIN_DESCRIPTION = "Describe what this plugin file provides."\n';
+
+  const requirementsMatch = source.match(
+    /(^REQUIREMENTS\s*(?::[^=\n]+)?=\s*\[[\s\S]*?\]\s*$)/m,
+  );
+  if (requirementsMatch?.index !== undefined) {
+    const insertAt = requirementsMatch.index + requirementsMatch[0].length;
+    return `${source.slice(0, insertAt)}${metadataSnippet}${source.slice(insertAt)}`;
+  }
+
+  const importMatch = source.match(/^(from\s+\S+\s+import\s+.+|import\s+.+)$/m);
+  if (importMatch?.index !== undefined) {
+    return `${source.slice(0, importMatch.index)}${metadataSnippet}\n${source.slice(importMatch.index)}`;
+  }
+
+  return `${source}${metadataSnippet}`;
+}
+
+function normalizeCustomBlockEntry(raw: RawCustomBlockEntry): CustomBlockEntry {
+  const filename = typeof raw.filename === "string" && raw.filename.trim()
+    ? raw.filename
+    : "custom_plugin.py";
+  const stem = typeof raw.stem === "string" && raw.stem.trim()
+    ? raw.stem
+    : filename.replace(/\.py$/i, "");
+  const requirements = Array.isArray(raw.requirements)
+    ? raw.requirements.filter((item): item is string => typeof item === "string")
+    : [];
+  const blocks = Array.isArray(raw.blocks)
+    ? raw.blocks
+        .filter(
+          (item): item is { key?: unknown; name?: unknown; category?: unknown; version?: unknown } =>
+            typeof item === "object" && item !== null,
+        )
+        .map((block) => ({
+          key: typeof block.key === "string" ? block.key : "",
+          name: typeof block.name === "string" ? block.name : "",
+          category: typeof block.category === "string" ? block.category : "Custom",
+          version: typeof block.version === "string" ? block.version : "1.0.0",
+        }))
+        .filter((block) => block.key.length > 0 && block.name.length > 0)
+    : [];
+
+  return {
+    filename,
+    stem,
+    path: typeof raw.path === "string" ? raw.path : filename,
+    requirements,
+    title:
+      typeof raw.title === "string" && raw.title.trim()
+        ? raw.title
+        : humanizePluginTitle(stem),
+    description:
+      typeof raw.description === "string" && raw.description.trim()
+        ? raw.description
+        : defaultPluginDescription(filename),
+    blocks,
+  };
 }
 
 export interface InstallBlockResult {
@@ -252,8 +418,9 @@ export interface InstallBlockResult {
 }
 
 export async function listCustomBlocks(): Promise<CustomBlockEntry[]> {
-  const { data } = await http.get<CustomBlockEntry[]>("/custom-blocks");
-  return data;
+  const { data } = await http.get<RawCustomBlockEntry[]>("/custom-blocks");
+  if (!Array.isArray(data)) return [];
+  return data.map(normalizeCustomBlockEntry);
 }
 
 export async function installCustomBlock(
@@ -274,16 +441,29 @@ export async function deleteCustomBlock(filename: string): Promise<void> {
   await http.delete(`/custom-blocks/${encodeURIComponent(filename)}`);
 }
 
+export async function getCustomBlockSource(filename: string): Promise<string> {
+  const response = await http.get<Blob>(
+    `/custom-blocks/${encodeURIComponent(filename)}/export`,
+    { responseType: "blob" },
+  );
+  return response.data.text();
+}
+
 export async function downloadBlockTemplate(name = "My Custom Block"): Promise<string> {
   const response = await http.get<Blob>("/custom-blocks/template", {
     params: { name },
     responseType: "blob",
   });
+  const source = await response.data.text();
+  const normalizedSource = ensureTemplatePluginMetadata(source, name);
   const filename = filenameFromDisposition(
     response.headers["content-disposition"],
     "custom_block_template.py",
   );
-  downloadBlob(response.data, filename);
+  downloadBlob(
+    new Blob([normalizedSource], { type: "text/x-python;charset=utf-8" }),
+    filename,
+  );
   return filename;
 }
 

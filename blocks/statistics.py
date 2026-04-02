@@ -182,7 +182,9 @@ class GroupAggregate(BaseBlock):
     name = "Group Aggregate"
     version = "1.0.0"
     category = "Statistics"
-    description = "Group rows by key columns and compute one or more summary aggregations."
+    description = (
+        "Group rows by key columns and compute one or more summary aggregations."
+    )
     input_labels = ["DataFrame"]
     output_labels = ["Aggregated DataFrame"]
     usage_notes = [
@@ -212,7 +214,9 @@ class GroupAggregate(BaseBlock):
         group_columns = _parse_columns(params.group_columns)
         if not group_columns:
             raise BlockValidationError("group_columns is required.")
-        missing_group_columns = [col for col in group_columns if col not in data.columns]
+        missing_group_columns = [
+            col for col in group_columns if col not in data.columns
+        ]
         if missing_group_columns:
             raise BlockValidationError(
                 f"GroupAggregate missing group columns: {missing_group_columns}"
@@ -263,14 +267,18 @@ class GroupAggregate(BaseBlock):
                 working = data[group_columns].copy()
                 working["__value__"] = pd.to_numeric(data[source], errors="coerce")
                 series_df = (
-                    working.groupby(group_columns, dropna=False, sort=False)["__value__"]
+                    working.groupby(group_columns, dropna=False, sort=False)[
+                        "__value__"
+                    ]
                     .agg(agg)
                     .reset_index(name=output)
                 )
             elif agg == "count":
                 series_df = grouped[source].count().reset_index(name=output)
             else:  # nunique
-                series_df = grouped[source].nunique(dropna=True).reset_index(name=output)
+                series_df = (
+                    grouped[source].nunique(dropna=True).reset_index(name=output)
+                )
 
             result = result.merge(series_df, on=group_columns, how="left")
             normalized_specs.append(
@@ -337,7 +345,9 @@ class GroupPairMetrics(BaseBlock):
         group_columns = _parse_columns(params.group_columns)
         if not group_columns:
             raise BlockValidationError("group_columns is required.")
-        missing_group_columns = [col for col in group_columns if col not in data.columns]
+        missing_group_columns = [
+            col for col in group_columns if col not in data.columns
+        ]
         if missing_group_columns:
             raise BlockValidationError(
                 f"GroupPairMetrics missing group columns: {missing_group_columns}"
@@ -354,7 +364,9 @@ class GroupPairMetrics(BaseBlock):
         metrics = [metric.lower() for metric in _parse_columns(params.metrics)]
         if not metrics:
             raise BlockValidationError("metrics is required.")
-        unsupported = [metric for metric in metrics if metric not in self._allowed_metrics]
+        unsupported = [
+            metric for metric in metrics if metric not in self._allowed_metrics
+        ]
         if unsupported:
             raise BlockValidationError(
                 f"GroupPairMetrics unsupported metrics: {unsupported}. Valid: {sorted(self._allowed_metrics)}"
@@ -362,7 +374,9 @@ class GroupPairMetrics(BaseBlock):
 
         output_prefix = str(params.output_prefix or "")
         rows: list[dict[str, Any]] = []
-        for group_value, group_df in data.groupby(group_columns, dropna=False, sort=False):
+        for group_value, group_df in data.groupby(
+            group_columns, dropna=False, sort=False
+        ):
             if not isinstance(group_value, tuple):
                 group_tuple = (group_value,)
             else:
@@ -917,16 +931,16 @@ class AssignTierByThresholds(BaseBlock):
                 tiers = values.loc[group_index].apply(
                     lambda value, resolved=thresholds: _assign(value, resolved)
                 )
-                label_series.loc[group_index] = tiers.map(lambda pair: pair[0])
-                rank_series.loc[group_index] = tiers.map(lambda pair: pair[1])
+                label_series.loc[group_index] = tiers.map(lambda pair: pair[0])  # pyright: ignore[reportIndexIssue]
+                rank_series.loc[group_index] = tiers.map(lambda pair: pair[1])  # pyright: ignore[reportIndexIssue]
             result[params.output_label_column] = label_series
             result[params.output_rank_column] = rank_series.astype(int)
             thresholds_metadata: list[float] | None = None
         else:
             thresholds = _compute_thresholds(values)
             tiers = values.apply(lambda value: _assign(value, thresholds))
-            result[params.output_label_column] = tiers.map(lambda pair: pair[0])
-            result[params.output_rank_column] = tiers.map(lambda pair: pair[1]).astype(
+            result[params.output_label_column] = tiers.map(lambda pair: pair[0])  # pyright: ignore[reportIndexIssue]
+            result[params.output_rank_column] = tiers.map(lambda pair: pair[1]).astype(  # pyright: ignore[reportIndexIssue]
                 int
             )
             thresholds_metadata = thresholds
