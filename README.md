@@ -16,19 +16,16 @@ Forge fixes this. Every node checkpoints its output. Every checkpoint carries it
 - MCP server over stdio (`python -m Forge mcp`) and streamable HTTP (`/mcp`), with 32 tools covering the full pipeline lifecycle — create, edit, run, poll, and inspect results.
 - Onboarding tour, workspace setup wizard, settings modal, and in-app file browser included.
 
-## Adding Custom Blocks
-*Coming Soon*: A built-in UI for importing your own custom blocks.
+## Adding Custom Blocks (Plugins)
+Forge supports user-defined blocks as Python classes inheriting from `BaseBlock`. To add your own blocks, you can download a template from the "Plugins" dropdown in the app. Once you've created your block class, you can simply drag the file onto the canvas to add it to the palette, or use the "Import Plugin" option in the menu. The backend will auto-discover it and make it available for use in your pipelines.
 
-For now, the registry scans site-packages/blocks/ in the venv via pkgutil.iter_modules, so any .py file there that contains BaseBlock subclasses gets auto-discovered on restart.
+You can manage your custom blocks in the "Plugins" section of the settings, where you can see all imported blocks, their source files, and options to remove them from the palette if needed.
 
-Steps:
+Custom blocks can define their own custom categories- for which the colors and icons can be configured in the settings. This allows you to organize your blocks in a way that makes sense for your specific use case.
 
-1. Find the blocks folder:
-`%LOCALAPPDATA%\Forge\venv\Lib\site-packages\blocks\`
-2. Drop the file in: Copy special.py into that folder.
-3. Install extra dependencies (if any — this file needs scikit-learn):
-`%LOCALAPPDATA%\Forge\venv\Scripts\pip install scikit-learn`
-4. Restart Forge. Blocks appear in the toolbox automatically.
+Custom blocks are identified by a star icon in the palette, making it easy to distinguish them from built-in blocks. They can be used just like any other block in your pipelines, with full support for parameters, presets, and provenance tracking.
+
+You can right-click on a custom block to download its source code as a template for creating new blocks. This is a great way to get started with block development, as it provides a working example that you can modify to suit your needs.
 
 ### Frontend: React + React Flow + TypeScript
 
@@ -41,6 +38,7 @@ Steps:
 - **Onboarding Tour**: Interactive walkthrough covering the palette, canvas, inspector, and execution controls.
 
 ### Backend: FastAPI + Python
+*Coming Soon: Migration to Rust for faster core engine and block execution, with a Python compatibility layer for blocks.*
 
 - **Block Registry**: Discovers and catalogs all available block classes. Serves the palette to the frontend.
 - **Pipeline Engine**: Receives the DAG definition from the frontend. Topologically sorts. Determines which nodes are stale (by comparing current provenance hash against stored checkpoint provenance). Executes stale nodes in dependency order.
@@ -53,6 +51,8 @@ Steps:
 - MCP for agent workflows over stdio (`python -m Forge mcp`) and mounted streamable HTTP (`/mcp`).
 
 ### MCP Server
+
+To get started with LLM Agent workflows, you can copy a customized setup prompt from the "MCP" section of the settings. Paste this into your favorite coding agent's chat interface (e.g. Codex or Claude Code) and the agent should be able to finish it's own setup. You may need to reboot the agent after setup to ensure it picks up the new tools.
 
 - Agents can list block types and inspect block docs, params, inputs, and outputs.
 - Agents can create/open/save draft pipelines, add or remove blocks and edges, manage groups, and run `prettify`.
