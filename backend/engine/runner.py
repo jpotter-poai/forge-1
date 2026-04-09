@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable
@@ -328,6 +329,10 @@ class PipelineRunner:
         filepath = params.get("filepath")
         if filepath:
             path = Path(filepath)
+            if not path.is_absolute():
+                workspace_dir = os.environ.get("FORGE_WORKSPACE_DIR", "")
+                if workspace_dir:
+                    path = Path(workspace_dir) / path
             if path.exists():
                 return compute_initial_data_signature(path)
 

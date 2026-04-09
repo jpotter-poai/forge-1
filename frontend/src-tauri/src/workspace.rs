@@ -112,11 +112,13 @@ pub fn write_env_file(forge_root: &PathBuf, workspace_dir: &str) -> Result<(), S
          PIPELINE_DIR={pipelines}\n\
          BLOCKS_DIR=./blocks\n\
          DEFAULT_FILE_PATH={datasets}\n\
+         WORKSPACE_DIR={workspace_dir}\n\
          LOG_LEVEL=INFO\n\
          CORS_ORIGINS=http://tauri.localhost,https://tauri.localhost,tauri://localhost,http://localhost:1420\n",
         checkpoints = workspace.join("checkpoints").to_string_lossy(),
         pipelines = workspace.join("pipelines").to_string_lossy(),
         datasets = workspace.join("datasets").to_string_lossy(),
+        workspace_dir = workspace.to_string_lossy(),
     );
 
     // Write to forge_root (works in dev where cwd = repo root)

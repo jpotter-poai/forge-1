@@ -141,6 +141,9 @@ def _execute_pipeline_worker(
     _run_id: str,
     event_queue: FileEventQueueWriter,
 ) -> None:
+    if settings.workspace_dir:
+        os.environ["FORGE_WORKSPACE_DIR"] = settings.workspace_dir
+
     registry = BlockRegistry(
         blocks_dir=settings.blocks_dir,
         package_name="blocks",
@@ -255,6 +258,7 @@ class ExecutionManager:
                 "blocks_dir": self._settings.blocks_dir,
                 "custom_blocks_dir": self._settings.custom_blocks_dir,
                 "default_file_path": self._settings.default_file_path,
+                "workspace_dir": self._settings.workspace_dir,
                 "log_level": self._settings.log_level,
                 "cors_origins": self._settings.cors_origins,
             },
