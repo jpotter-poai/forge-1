@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import json
 
@@ -12,6 +13,16 @@ from backend.block import (
     BlockValidationError,
     block_param,
 )
+
+
+def _resolve_path(filepath: str) -> Path:
+    """Resolve a filepath, expanding relative paths against FORGE_WORKSPACE_DIR."""
+    path = Path(filepath)
+    if not path.is_absolute():
+        workspace_dir = os.environ.get("FORGE_WORKSPACE_DIR", "")
+        if workspace_dir:
+            path = Path(workspace_dir) / path
+    return path
 
 
 class LoadCSV(BaseBlock):
@@ -64,7 +75,7 @@ class LoadCSV(BaseBlock):
     def execute(self, data, params: Params | None = None) -> BlockOutput:
         if params is None:
             raise BlockValidationError("LoadCSV requires params.")
-        filepath = Path(params.filepath)
+        filepath = _resolve_path(params.filepath)
         if not filepath.exists():
             raise BlockValidationError(f"CSV file not found: {filepath}")
         index_col = params.index_col
@@ -116,7 +127,7 @@ class ExportCSV(BaseBlock):
     def execute(self, data: pd.DataFrame, params: Params | None = None) -> BlockOutput:
         if params is None:
             raise BlockValidationError("ExportCSV requires params.")
-        path = Path(params.filepath)
+        path = _resolve_path(params.filepath)
         path.parent.mkdir(parents=True, exist_ok=True)
         data.to_csv(path, index=bool(params.index))
         return BlockOutput(data=data, metadata={"exported_path": str(path)})
