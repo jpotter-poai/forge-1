@@ -397,7 +397,7 @@ export function Toolbar({
             onClick={onRun}
             disabled={isRunning}
             className={`
-              px-4 py-1.5 rounded text-sm font-semibold
+              px-4 py-1.5 rounded text-sm font-semibold whitespace-nowrap
               transition-[color,background-color,transform,box-shadow]
               duration-150
               ${
