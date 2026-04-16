@@ -76,6 +76,7 @@ const FORGE_CLIPBOARD_KEY = "forge-clipboard-v2";
 interface ClipboardEntry {
   id: string;
   nodes: Node<ForgeNodeData>[];
+  edges?: Edge[];
 }
 
 type PluginBlockSummary = CustomBlockEntry["blocks"][number];
@@ -121,10 +122,10 @@ function generateClipboardId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function writeClipboard(nodes: Node<ForgeNodeData>[]): string {
+function writeClipboard(nodes: Node<ForgeNodeData>[], edges: Edge[] = []): string {
   const id = generateClipboardId();
   try {
-    const entry: ClipboardEntry = { id, nodes };
+    const entry: ClipboardEntry = { id, nodes, edges };
     localStorage.setItem(FORGE_CLIPBOARD_KEY, JSON.stringify(entry));
   } catch {
     // localStorage full or unavailable — silent fail, in-memory clipboard still works
@@ -632,7 +633,7 @@ export default function App() {
   const historyRef = useRef<GraphSnapshot[]>([]);
   const lastHistorySignatureRef = useRef<string | null>(null);
   const isApplyingUndoRef = useRef(false);
-  const clipboardRef = useRef<Node<ForgeNodeData>[]>([]);
+  const clipboardRef = useRef<{ nodes: Node<ForgeNodeData>[]; edges: Edge[] }>({ nodes: [], edges: [] });
   // Tracks the clipboard id that THIS instance last wrote to localStorage.
   // If the stored id differs on paste, another instance wrote it and we must
   // read from localStorage instead of the stale in-memory ref.
@@ -814,12 +815,15 @@ export default function App() {
         if (toCopy.length === 0) return;
 
         event.preventDefault();
-        const cloned = cloneValue(toCopy);
-        clipboardRef.current = cloned;
+        const clonedNodes = cloneValue(toCopy);
+        // Capture internal edges (both endpoints inside the selection)
+        const selectedIds = new Set(toCopy.map((n) => n.id));
+        const internalEdges = cloneValue(
+          edges.filter((e) => selectedIds.has(e.source) && selectedIds.has(e.target)),
+        );
+        clipboardRef.current = { nodes: clonedNodes, edges: internalEdges };
         pasteDepthRef.current = 0;
-        // Write to cross-tab clipboard and record the id so paste knows
-        // whether a *different* instance has written since our last copy.
-        lastWrittenIdRef.current = writeClipboard(cloned);
+        lastWrittenIdRef.current = writeClipboard(clonedNodes, internalEdges);
         return;
       }
 
@@ -831,23 +835,35 @@ export default function App() {
         if (crossTab && crossTab.id !== lastWrittenIdRef.current) {
           // A different instance (or a newer copy from any instance) owns the
           // clipboard — use it and update our in-memory ref.
-          clipboardRef.current = crossTab.nodes;
+          clipboardRef.current = { nodes: crossTab.nodes, edges: crossTab.edges ?? [] };
           lastWrittenIdRef.current = crossTab.id;
-        } else if (crossTab && clipboardRef.current.length === 0) {
+        } else if (crossTab && clipboardRef.current.nodes.length === 0) {
           // Same instance wrote it but in-memory is empty (e.g. fresh window
           // that hasn't copied yet — load from storage as a fallback).
-          clipboardRef.current = crossTab.nodes;
+          clipboardRef.current = { nodes: crossTab.nodes, edges: crossTab.edges ?? [] };
         }
-        let source = clipboardRef.current;
-        if (source.length === 0) return;
+        const source = clipboardRef.current;
+        if (source.nodes.length === 0) return;
         event.preventDefault();
         pushHistorySnapshot();
         pasteDepthRef.current += 1;
         const offset = 40 * pasteDepthRef.current;
-        const pastedIds = pasteNodes(source, { x: offset, y: offset });
+        const pastedIds = pasteNodes(source.nodes, { x: offset, y: offset });
+        // Remap and restore internal edges
+        if (source.edges.length > 0 && pastedIds.length === source.nodes.length) {
+          const idMap = new Map<string, string>();
+          source.nodes.forEach((n, i) => idMap.set(n.id, pastedIds[i]));
+          const remappedEdges: Edge[] = source.edges.map((e, i) => ({
+            ...e,
+            id: `e_paste_${Date.now()}_${i}`,
+            source: idMap.get(e.source) ?? e.source,
+            target: idMap.get(e.target) ?? e.target,
+          }));
+          setEdges((es) => [...es, ...remappedEdges]);
+        }
         if (
-          source.length === 1 &&
-          source[0].type !== "commentBlock"
+          source.nodes.length === 1 &&
+          source.nodes[0].type !== "commentBlock"
         ) {
           setSelectedNodeId(pastedIds[0] ?? null);
         } else {
@@ -866,8 +882,10 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [
     nodes,
+    edges,
     selectedNodeId,
     pasteNodes,
+    setEdges,
     pushHistorySnapshot,
     setSelectedNodeId,
     showTour,

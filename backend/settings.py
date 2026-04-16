@@ -81,6 +81,7 @@ class Settings:
     blocks_dir: str = "./blocks"
     custom_blocks_dir: str = field(default_factory=_default_custom_blocks_dir)
     default_file_path: str = ""
+    workspace_dir: str = ""
     log_level: str = "INFO"
     cors_origins: list[str] = field(default_factory=lambda: [
         "http://tauri.localhost",
@@ -101,6 +102,7 @@ class Settings:
                 "CUSTOM_BLOCKS_DIR", _default_custom_blocks_dir()
             ),
             default_file_path=env_or_default("DEFAULT_FILE_PATH", ""),
+            workspace_dir=env_or_default("WORKSPACE_DIR", ""),
             log_level=env_or_default("LOG_LEVEL", "INFO"),
             cors_origins=cors or ["http://localhost:5173"],
         )
