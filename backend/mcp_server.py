@@ -157,6 +157,59 @@ def build_mcp_server(services: AppServices) -> FastMCP:
 
     @server.tool(
         description=(
+            "Render a Mermaid graph TD diagram of the pipeline. "
+            "mode='detailed' (default) outputs a full nested-subgraph view: comment blocks become subgraphs, "
+            "nested by geometric containment, with edges contracted to subgraph boundaries. "
+            "mode='collapsed' outputs a high-level map where each comment block is a single node "
+            "(showing node count); use this first to orient yourself, then drill in with inspect_pipeline."
+        ),
+        structured_output=True,
+    )
+    def render_pipeline_mermaid(
+        mode: str = "detailed",
+        draft_id: str | None = None,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        return document_service.render_pipeline_mermaid(
+            mode=mode,
+            draft_id=draft_id,
+            client_id=client_id(ctx),
+        )
+
+    @server.tool(
+        description=(
+            "Create a manual (non-managed) comment block. "
+            "Pass `member_ids` as a list of node IDs and/or existing comment IDs: the tool computes the "
+            "bounding box of all specified elements and positions the comment around them with standard padding. "
+            "Raw `x`, `y`, `width`, `height` can be supplied as a fallback when no member_ids are given."
+        ),
+        structured_output=True,
+    )
+    def add_comment(
+        title: str,
+        description: str = "",
+        member_ids: list[str] | None = None,
+        x: float | None = None,
+        y: float | None = None,
+        width: float | None = None,
+        height: float | None = None,
+        draft_id: str | None = None,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        return document_service.add_comment(
+            title=title,
+            description=description,
+            member_ids=member_ids,
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            draft_id=draft_id,
+            client_id=client_id(ctx),
+        )
+
+    @server.tool(
+        description=(
             "Add a block node to the active or specified draft. "
             "`params` accepts an object or JSON string; `group_ids` accepts a list, JSON string list, or comma-delimited string."
         ),
