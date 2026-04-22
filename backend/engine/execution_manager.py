@@ -15,6 +15,7 @@ import time
 from typing import Any, Callable
 import uuid
 
+from backend import settings
 from backend.engine.checkpoint_store import CheckpointStore
 from backend.engine.runner import PipelineRunner
 from backend.registry import BlockRegistry
@@ -143,7 +144,6 @@ def _execute_pipeline_worker(
 ) -> None:
     if settings.workspace_dir:
         os.environ["FORGE_WORKSPACE_DIR"] = settings.workspace_dir
-
     registry = BlockRegistry(
         blocks_dir=settings.blocks_dir,
         package_name="blocks",

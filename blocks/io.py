@@ -14,6 +14,16 @@ from backend.block import (
     block_param,
 )
 
+def _resolve_path(filepath: str) -> Path:
+    """Resolve a filepath, expanding relative paths against FORGE_WORKSPACE_DIR."""
+    path = Path(filepath)
+    if not path.is_absolute():
+        workspace_dir = os.environ.get("FORGE_WORKSPACE_DIR", "")
+        if workspace_dir:
+            path = Path(workspace_dir) / path
+    return path
+
+
 
 def _resolve_path(filepath: str) -> Path:
     """Resolve a filepath, expanding relative paths against FORGE_WORKSPACE_DIR."""

@@ -172,7 +172,7 @@ export function Canvas({
           }
         }}
         fitView
-        deleteKeyCode="Delete"
+        deleteKeyCode={["Delete", "Backspace"]}
         selectionOnDrag
         selectionMode={SelectionMode.Full}
         panOnDrag={[1, 2]}
