@@ -42,7 +42,7 @@ from backend.pipeline_layout import (
 from backend.pipeline_mermaid import render_mermaid
 from backend.pipeline_store import PipelineStore
 from backend.registry import BlockRegistry, BlockSpec
-from backend.schemas import normalize_pipeline_payload
+from backend.schemas import DEFAULT_COMMENT_COLOR, normalize_pipeline_payload
 from backend.settings import Settings
 
 
@@ -1884,6 +1884,7 @@ class DraftService:
         *,
         title: str,
         description: str = "",
+        color: str | None = None,
         member_ids: list[str] | None = None,
         x: float | None = None,
         y: float | None = None,
@@ -1948,6 +1949,7 @@ class DraftService:
             "id": comment_id,
             "title": title,
             "description": description,
+            "color": str(color or DEFAULT_COMMENT_COLOR),
             "position": {"x": x, "y": y},
             "width": width,
             "height": height,
@@ -1960,6 +1962,7 @@ class DraftService:
             "id": comment_id,
             "title": title,
             "description": description,
+            "color": str(color or DEFAULT_COMMENT_COLOR),
             "position": {"x": x, "y": y},
             "width": width,
             "height": height,

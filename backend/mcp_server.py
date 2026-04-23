@@ -181,13 +181,15 @@ def build_mcp_server(services: AppServices) -> FastMCP:
             "Create a manual (non-managed) comment block. "
             "Pass `member_ids` as a list of node IDs and/or existing comment IDs: the tool computes the "
             "bounding box of all specified elements and positions the comment around them with standard padding. "
-            "Raw `x`, `y`, `width`, `height` can be supplied as a fallback when no member_ids are given."
+            "Raw `x`, `y`, `width`, `height` can be supplied as a fallback when no member_ids are given. "
+            "Optionally pass `color` as a hex string such as `#14b8a6`."
         ),
         structured_output=True,
     )
     def add_comment(
         title: str,
         description: str = "",
+        color: str | None = None,
         member_ids: list[str] | None = None,
         x: float | None = None,
         y: float | None = None,
@@ -199,6 +201,7 @@ def build_mcp_server(services: AppServices) -> FastMCP:
         return document_service.add_comment(
             title=title,
             description=description,
+            color=color,
             member_ids=member_ids,
             x=x,
             y=y,
