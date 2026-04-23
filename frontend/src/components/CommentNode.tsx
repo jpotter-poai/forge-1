@@ -70,6 +70,7 @@ export const CommentNode = memo(function CommentNode({
   id,
   data,
   height,
+  width,
   selected,
 }: NodeProps) {
   const { title, description, color } = data as CommentNodeData;
@@ -94,17 +95,19 @@ export const CommentNode = memo(function CommentNode({
   const currentHsv = rgbToHsv(hexToRgb(theme.color));
   const [hexDraft, setHexDraft] = useState(theme.color);
   const commentHeight = typeof height === "number" ? height : 160;
-  const titleMaxScreenSize = clamp(commentHeight * 0.12, 14, 24);
-  const titleMinScreenSize = clamp(commentHeight * 0.055, 6, 10);
+  const commentWidth = typeof width === "number" ? width : 160;
+  const commentConstraint = Math.min(commentHeight, commentWidth);
+  const titleMaxScreenSize = clamp(Math.min(commentConstraint * 0.12, commentWidth * 0.009), 11, 24);
+  const titleMinScreenSize = clamp(commentConstraint * 0.055, 6, 10);
   const titleTargetScreenSize = clamp(
-    commentHeight * zoom * 0.12,
+    commentConstraint * zoom * 0.12,
     titleMinScreenSize,
     titleMaxScreenSize,
   );
   const titleFontSize = clamp(
     titleTargetScreenSize / Math.max(zoom, 0.1),
     11,
-    commentHeight * 0.14,
+    commentConstraint * 0.14,
   );
   const titleLineHeight = titleFontSize * 1.45;
 

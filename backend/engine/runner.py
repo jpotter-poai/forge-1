@@ -11,7 +11,13 @@ import re
 import pandas as pd
 from pydantic import ValidationError
 
-from backend.block import BaseBlock, BlockOutput, BlockParams, BlockValidationError, InsufficientInputs
+from backend.block import (
+    BaseBlock,
+    BlockOutput,
+    BlockParams,
+    BlockValidationError,
+    InsufficientInputs,
+)
 from backend.engine.checkpoint_store import CheckpointStore
 from backend.engine.provenance import (
     Provenance,
@@ -183,6 +189,7 @@ class PipelineRunner:
                     parent_checkpoint_ids=[
                         node_checkpoint_ids[parent.source_node_id]
                         for parent in parent_refs
+                        if parent is not None
                     ],
                     initial_data_signature=parent_history_hash
                     if not parent_refs
@@ -320,7 +327,9 @@ class PipelineRunner:
             return None
         if n_inputs == 1:
             ref = parent_refs[0] if parent_refs else None
-            return self._resolve_parent_output(ref, outputs) if ref is not None else None
+            return (
+                self._resolve_parent_output(ref, outputs) if ref is not None else None
+            )
         # Multi-input: return a list of length n_inputs with None for disconnected slots.
         return [
             self._resolve_parent_output(ref, outputs) if ref is not None else None

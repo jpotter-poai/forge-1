@@ -159,14 +159,14 @@ export function buildCommentTheme(value: string | null | undefined, selected = f
   const color = resolveCommentColor(value);
   return {
     color,
-    background: `linear-gradient(180deg, ${rgba(color, selected ? 0.24 : 0.17)} 0%, rgba(26, 29, 39, ${selected ? 0.96 : 0.88}) 82%)`,
+    background: rgba(color, selected ? 0.14 : 0.09),
     border: rgba(color, selected ? 0.72 : 0.44),
     separator: rgba(color, selected ? 0.42 : 0.28),
-    buttonFill: `linear-gradient(145deg, ${rgba(color, 0.28)} 0%, ${rgba(color, 0.14)} 100%)`,
+    buttonFill: rgba(color, selected ? 0.18 : 0.12),
     buttonRing: rgba(color, selected ? 0.52 : 0.36),
     shadow: selected
-      ? `0 0 0 1px ${rgba(color, 0.22)}, 0 10px 28px rgba(0, 0, 0, 0.4), 0 0 22px ${rgba(color, 0.14)}`
-      : `0 10px 24px rgba(0, 0, 0, 0.24)`,
+      ? `0 0 0 1px ${rgba(color, 0.25)}, 0 4px 16px rgba(0, 0, 0, 0.4)`
+      : `0 0 0 1px ${rgba(color, 0.15)}, 0 4px 16px rgba(0, 0, 0, 0.24)`,
     minimap: color,
     resizerLine: rgba(color, 0.82),
   };
