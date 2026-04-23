@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any, Iterator
@@ -504,6 +505,16 @@ def _safe_plot_filename(plot_title: str) -> str:
     return safe
 
 
+def _resolve_export_dir(export_dir: str) -> Path:
+    """Resolve a visualization export directory against FORGE_WORKSPACE_DIR."""
+    directory = Path(export_dir)
+    if not directory.is_absolute():
+        workspace_dir = os.environ.get("FORGE_WORKSPACE_DIR", "").strip()
+        if workspace_dir:
+            directory = Path(workspace_dir) / directory
+    return directory
+
+
 def _export_visualization(plot: Any, params: Any, plot_title: str) -> str | None:
     if not bool(getattr(params, "export_enabled", False)):
         return None
@@ -514,7 +525,7 @@ def _export_visualization(plot: Any, params: Any, plot_title: str) -> str | None
             "export_dir is required when export_enabled is true."
         )
 
-    directory = Path(export_dir)
+    directory = _resolve_export_dir(export_dir)
     directory.mkdir(parents=True, exist_ok=True)
     export_basename = str(getattr(params, "export_basename", "") or "").strip()
     filename = _safe_plot_filename(export_basename or plot_title)
@@ -572,7 +583,7 @@ class VisualizationParams(BlockParams):
     )
     export_dir: str | None = block_param(
         None,
-        description="Destination directory for exported visuals. Forge writes `{Plot Title}.{extension}` into this folder when export is enabled.",
+        description="Destination directory for exported visuals. Relative paths resolve from the Forge workspace, and Forge writes `{Plot Title}.{extension}` into this folder when export is enabled.",
         example="C:\\Users\\you\\exports",
         browse_mode="directory",
     )
