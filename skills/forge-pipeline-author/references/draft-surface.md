@@ -12,23 +12,40 @@ Use this reference when you are authoring a pipeline from scratch or recovering 
 
 Use this tool whenever you open an unfamiliar or large pipeline and need to understand its structure before editing.
 
-**Collapsed mode** — one node per comment block, inter-group edges only. Start here.
+**Top-level view** — highest-level chunk DAG only. Start here.
 
 ```json
-{ "mode": "collapsed" }
+{}
 ```
 
-Returns a Mermaid `graph TD` where each comment block is rendered as `GroupName\n(N nodes)`. Edge endpoints are contracted to the group boundary, so `group_A --> group_B` means *some node in A feeds some node in B*. Use this to understand the high-level DAG before drilling in.
+Returns a Mermaid `graph TD` where each top-level chunk is a root-most non-empty group, plus explicit orphan regions when ungrouped work cannot be attached unambiguously. Clear ungrouped scaffolding is absorbed into the strongest neighboring chunk. The response is intentionally small: Mermaid only.
 
-**Detailed mode** — full nested subgraph structure (default).
+**Scoped view** — render only one chunk/group.
 
 ```json
-{ "mode": "detailed" }
+{ "target_group": "group_conf_allocate" }
 ```
 
-Returns the same graph with nested `subgraph` blocks mirroring comment-block containment. Edges that cross a subgraph boundary use the subgraph ID as the endpoint, not the internal node. Use this to verify wiring, spot ungrouped nodes, or understand nested group structure.
+Returns only the next-level Mermaid view inside that target. Use this when you already know which chunk you want to inspect and only need the structure under that one scope.
 
-**Edge contraction note:** In both modes, an edge `A --> B` where A or B is a subgraph ID means the actual data connection is between a node *inside* A and a node *inside* B. Use `inspect_pipeline` group memberships to find the specific nodes involved.
+## Drilling In: `inspect_group`
+
+Use this after `render_pipeline_mermaid()` when you want a small structured payload for a specific chunk or subgroup.
+
+```json
+{ "target_group": "group_conf_allocate" }
+```
+
+Returns:
+- the target id, name, kind, and node count
+- a small `children` list with child ids, names, kinds, node counts, and whether to recurse with `inspect_group` or switch to `inspect_block`
+- a Mermaid graph for just that scope
+
+This is the primary drill-down workflow for LLMs:
+1. `render_pipeline_mermaid()` for the top-level map
+2. `inspect_group(target_group=...)` for one chunk
+3. recurse with `inspect_group` on child ids as needed
+4. switch to `inspect_block` once the child says `inspect_with="inspect_block"`
 
 ## Manual Comment Blocks: `add_comment`
 

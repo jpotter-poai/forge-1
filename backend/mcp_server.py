@@ -157,21 +157,39 @@ def build_mcp_server(services: AppServices) -> FastMCP:
 
     @server.tool(
         description=(
-            "Render a Mermaid graph TD diagram of the pipeline. "
-            "mode='detailed' (default) outputs a full nested-subgraph view: comment blocks become subgraphs, "
-            "nested by geometric containment, with edges contracted to subgraph boundaries. "
-            "mode='collapsed' outputs a high-level map where each comment block is a single node "
-            "(showing node count); use this first to orient yourself, then drill in with inspect_pipeline."
+            "Render a Mermaid graph TD structural summary of the pipeline. "
+            "When `target_group` is omitted, this returns the highest-level chunk DAG only. "
+            "When `target_group` is provided, it returns only the next-level Mermaid view inside that specific chunk/group."
         ),
         structured_output=True,
     )
     def render_pipeline_mermaid(
-        mode: str = "detailed",
+        target_group: str | None = None,
         draft_id: str | None = None,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         return document_service.render_pipeline_mermaid(
-            mode=mode,
+            target_group=target_group,
+            draft_id=draft_id,
+            client_id=client_id(ctx),
+        )
+
+    @server.tool(
+        description=(
+            "Inspect one structural chunk/group of the current draft. "
+            "Returns a small child list plus the next-level Mermaid view for that specific target. "
+            "Use the returned child ids to drill deeper with `inspect_group`, or call `inspect_block` for child entries "
+            "whose `inspect_with` value is `inspect_block`."
+        ),
+        structured_output=True,
+    )
+    def inspect_group(
+        target_group: str,
+        draft_id: str | None = None,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        return document_service.inspect_group(
+            target_group=target_group,
             draft_id=draft_id,
             client_id=client_id(ctx),
         )
