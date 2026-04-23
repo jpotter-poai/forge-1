@@ -14,6 +14,7 @@ from backend.block import (
     BlockOutput,
     BlockParams,
     BlockValidationError,
+    InsufficientInputs,
     block_param,
 )
 
@@ -1973,7 +1974,9 @@ class AnnotatePlotWithArrows(VisualizationBlock):
         title: str = "Annotated Plot"
 
     def validate(self, data: Any) -> None:
-        nodes_df, edges_df = _require_two_dataframes(data, "AnnotatePlotWithArrows")
+        if not isinstance(data, (list, tuple)) or len(data) < 2 or any(d is None for d in data[:2]):
+            raise InsufficientInputs("AnnotatePlotWithArrows requires both inputs.")
+        nodes_df, edges_df = data[:2]
         _require_non_empty_frame(nodes_df, "AnnotatePlotWithArrows")
         if edges_df.shape[1] < 2:
             raise BlockValidationError(
