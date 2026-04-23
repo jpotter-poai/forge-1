@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import {
   NodeResizer,
   useReactFlow,
+  useViewport,
   type NodeProps,
   type ResizeParams,
 } from "@xyflow/react";
@@ -42,6 +43,10 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 function readSaturationValueFromPointer(
   event: PointerEvent | ReactPointerEvent,
   element: HTMLDivElement,
@@ -64,10 +69,12 @@ function readHueFromPointer(
 export const CommentNode = memo(function CommentNode({
   id,
   data,
+  height,
   selected,
 }: NodeProps) {
   const { title, description, color } = data as CommentNodeData;
   const { setNodes } = useReactFlow();
+  const { zoom } = useViewport();
   const backdropBlur = useBackdropBlur();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -86,6 +93,20 @@ export const CommentNode = memo(function CommentNode({
     normalizedColor !== null && !isCommentPaletteColor(normalizedColor);
   const currentHsv = rgbToHsv(hexToRgb(theme.color));
   const [hexDraft, setHexDraft] = useState(theme.color);
+  const commentHeight = typeof height === "number" ? height : 160;
+  const titleMaxScreenSize = clamp(commentHeight * 0.12, 14, 24);
+  const titleMinScreenSize = clamp(commentHeight * 0.055, 6, 10);
+  const titleTargetScreenSize = clamp(
+    commentHeight * zoom * 0.12,
+    titleMinScreenSize,
+    titleMaxScreenSize,
+  );
+  const titleFontSize = clamp(
+    titleTargetScreenSize / Math.max(zoom, 0.1),
+    11,
+    commentHeight * 0.14,
+  );
+  const titleLineHeight = titleFontSize * 1.45;
 
   useEffect(() => {
     setHexDraft(theme.color.toUpperCase());
@@ -368,6 +389,10 @@ export const CommentNode = memo(function CommentNode({
               placeholder:text-forge-border
               cursor-text
             "
+            style={{
+              fontSize: `${titleFontSize}px`,
+              lineHeight: `${titleLineHeight}px`,
+            }}
           />
           <button
             type="button"
